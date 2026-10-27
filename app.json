@@ -10,13 +10,23 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.otwo.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F7F9F7",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "softwareKeyboardLayoutMode": "pan",
+      "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "INTERNET"
+      ]
+    },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#F7F9F7",
+      "translucent": false
     },
     "web": {
       "favicon": "./assets/favicon.png"

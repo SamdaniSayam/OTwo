@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
 } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { Layout } from '../../constants/layout';
@@ -54,6 +55,19 @@ export const OnboardingScreen = () => {
   ]);
 
   const { completeOnboarding, isLoading } = useAuthStore();
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (step > 1) {
+        setStep((prev) => (prev - 1) as 1 | 2 | 3);
+        return true;
+      }
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [step]);
 
   const handleAddMedication = () => {
     if (!newMedLabel.trim()) return;
