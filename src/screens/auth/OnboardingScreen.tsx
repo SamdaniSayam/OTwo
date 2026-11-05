@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   BackHandler,
+  AccessibilityInfo,
 } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { Layout } from '../../constants/layout';
@@ -54,7 +55,8 @@ export const OnboardingScreen = () => {
     'Stay well hydrated throughout the day',
   ]);
 
-  const { completeOnboarding, isLoading } = useAuthStore();
+  const { completeOnboarding, isLoading, error } = useAuthStore();
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     const onBackPress = () => {
@@ -67,6 +69,10 @@ export const OnboardingScreen = () => {
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => subscription.remove();
+  }, [step]);
+
+  useEffect(() => {
+    AccessibilityInfo.announceForAccessibility(`Step ${step} of 4`);
   }, [step]);
 
   const handleAddMedication = () => {
@@ -95,6 +101,7 @@ export const OnboardingScreen = () => {
   };
 
   const handleFinish = async () => {
+    setSaveError('');
     const parsedAge = parseInt(age, 10) || 25;
     const data: OnboardingData = {
       age: parsedAge,
@@ -108,7 +115,10 @@ export const OnboardingScreen = () => {
       },
       personalGoals: selectedGoals,
     };
-    await completeOnboarding(data);
+    const result = await completeOnboarding(data);
+    if (!result.success) {
+      setSaveError(result.error || 'Could not save your plan. Please try again.');
+    }
   };
 
   return (
@@ -123,8 +133,15 @@ export const OnboardingScreen = () => {
         >
           {/* Header & Step Indicator */}
           <View style={styles.header}>
-            <Text style={styles.stepIndicator}>Step {step} of 4</Text>
-            <View style={styles.progressBar}>
+            <Text style={styles.stepIndicator} accessibilityLiveRegion="polite">
+              Step {step} of 4
+            </Text>
+            <View
+              style={styles.progressBar}
+              accessibilityRole="progressbar"
+              accessibilityLabel="Onboarding progress"
+              accessibilityValue={{ min: 1, max: 4, now: step, text: `Step ${step} of 4` }}
+            >
               <View style={[styles.progressFill, { width: `${(step / 4) * 100}%` }]} />
             </View>
           </View>
@@ -134,7 +151,7 @@ export const OnboardingScreen = () => {
           {/* Step 1: Age */}
           {step === 1 && (
             <View style={styles.card}>
-              <Text style={styles.title}>Your Profile Baseline</Text>
+              <Text style={styles.title} accessibilityRole="header">Your Profile Baseline</Text>
               <Text style={styles.description}>
                 To tailor your daily routine checklist realistically, let us know your age.
               </Text>
@@ -144,7 +161,7 @@ export const OnboardingScreen = () => {
                 keyboardType="numeric"
                 value={age}
                 onChangeText={setAge}
-                helperText="Stored securely and used solely to calibrate routine pace."
+                helperText="Stored on this device and used solely to calibrate routine pace."
               />
               <Button
                 title="Next: Doctor Recommendations"
@@ -158,9 +175,9 @@ export const OnboardingScreen = () => {
           {/* Step 2: Doctor recommendations & Medication timing */}
           {step === 2 && (
             <View style={styles.card}>
-              <Text style={styles.title}>Doctor Recommendations</Text>
+              <Text style={styles.title} accessibilityRole="header">Doctor Recommendations</Text>
               <Text style={styles.description}>
-                Enter the instructions your physician gave you. Notes are encrypted client-side. {APP_NAME} will never alter or question them.
+                Enter the instructions your physician gave you. Notes are stored only on this device and are never uploaded. {APP_NAME} will never alter or question them.
               </Text>
               <Input
                 label="Doctor Advice & Action Plan Notes (Optional)"
@@ -170,8 +187,13 @@ export const OnboardingScreen = () => {
                 value={doctorNotes}
                 onChangeText={setDoctorNotes}
               />
+              <Text style={styles.subtext}>
+                These notes cannot be restored after a reinstall. Keep a copy in your own records.
+              </Text>
 
-              <Text style={styles.sectionHeader}>Medication Timing Reminders</Text>
+              <Text style={styles.sectionHeader} accessibilityRole="header">
+                Medication Timing Reminders
+              </Text>
               <Text style={styles.subtext}>
                 Set up time-of-day reminders based on your prescription (reminder-only).
               </Text>
@@ -187,6 +209,8 @@ export const OnboardingScreen = () => {
                   <TouchableOpacity
                     onPress={() => handleRemoveMedication(med.id)}
                     style={styles.removeBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${med.label} reminder`}
                   >
                     <Text style={styles.removeBtnText}>Remove</Text>
                   </TouchableOpacity>
@@ -237,7 +261,7 @@ export const OnboardingScreen = () => {
           {/* Step 3: Current Daily Habits */}
           {step === 3 && (
             <View style={styles.card}>
-              <Text style={styles.title}>Current Daily Habits</Text>
+              <Text style={styles.title} accessibilityRole="header">Current Daily Habits</Text>
               <Text style={styles.description}>
                 Help us calibrate your hydration, rest, and movement checklists.
               </Text>
@@ -260,6 +284,10 @@ export const OnboardingScreen = () => {
                       styles.chip,
                       movementLevel === lvl && styles.chipActive,
                     ]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: movementLevel === lvl }}
+                    aria-checked={movementLevel === lvl}
+                    accessibilityLabel={`Movement level: ${lvl}`}
                   >
                     <Text
                       style={[
@@ -292,6 +320,10 @@ export const OnboardingScreen = () => {
                       styles.chip,
                       stressLevel === lvl && styles.chipActive,
                     ]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: stressLevel === lvl }}
+                    aria-checked={stressLevel === lvl}
+                    accessibilityLabel={`Stress level: ${lvl}`}
                   >
                     <Text
                       style={[
@@ -325,7 +357,7 @@ export const OnboardingScreen = () => {
           {/* Step 4: Personal Goals */}
           {step === 4 && (
             <View style={styles.card}>
-              <Text style={styles.title}>Your Personal Goals</Text>
+              <Text style={styles.title} accessibilityRole="header">Your Personal Goals</Text>
               <Text style={styles.description}>
                 Select the routines you want {APP_NAME} to support you in maintaining.
               </Text>
@@ -338,14 +370,34 @@ export const OnboardingScreen = () => {
                     activeOpacity={0.8}
                     onPress={() => toggleGoal(goal)}
                     style={[styles.goalItem, isSelected && styles.goalItemActive]}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: isSelected }}
+                    aria-checked={isSelected}
+                    accessibilityLabel={goal}
                   >
-                    <Text style={styles.goalCheckbox}>{isSelected ? '☑' : '☐'}</Text>
+                    <Text
+                      style={styles.goalCheckbox}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                    >
+                      {isSelected ? '☑' : '☐'}
+                    </Text>
                     <Text style={[styles.goalText, isSelected && styles.goalTextActive]}>
                       {goal}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
+
+              {saveError || error ? (
+                <Text
+                  style={styles.errorText}
+                  accessibilityLiveRegion="assertive"
+                  accessibilityRole="alert"
+                >
+                  {saveError || error}
+                </Text>
+              ) : null}
 
               <View style={styles.navRow}>
                 <Button
@@ -459,6 +511,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   removeBtn: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingHorizontal: Layout.spacing.sm,
     paddingVertical: Layout.spacing.xs,
   },
@@ -488,12 +542,14 @@ const styles = StyleSheet.create({
   },
   chip: {
     flex: 1,
-    height: Layout.touchTarget.minHeight,
+    minHeight: Layout.touchTarget.minHeight,
     borderRadius: Layout.borderRadius.md,
     borderWidth: 1.5,
     borderColor: Colors.border,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Layout.spacing.xs,
+    paddingVertical: Layout.spacing.xs,
     backgroundColor: Colors.surface,
   },
   chipActive: {
@@ -539,6 +595,14 @@ const styles = StyleSheet.create({
   },
   nextBtn: {
     marginTop: Layout.spacing.xl,
+  },
+  errorText: {
+    fontSize: Layout.fontSize.bodySm,
+    color: Colors.error,
+    backgroundColor: Colors.errorLight,
+    borderRadius: Layout.borderRadius.sm,
+    padding: Layout.spacing.sm,
+    marginTop: Layout.spacing.md,
   },
   navRow: {
     flexDirection: 'row',

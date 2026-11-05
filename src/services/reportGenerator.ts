@@ -8,34 +8,67 @@ import { symptomRepo } from '../db/repositories/symptomRepo';
 import { habitRepo } from '../db/repositories/habitRepo';
 import { Disclaimers } from '../constants/disclaimers';
 import { APP_NAME } from '../constants/app';
+import { getLocalDateString, getLocalDateStringDaysAgo } from '../utils/date';
+import {
+  averageBreathingRating as calculateAverageBreathingRating,
+  summarizeAdherence,
+} from './reportMath';
+
+export interface DoctorReportOptions {
+  userAge?: number;
+  /** Free-text symptom notes are private by default; export requires explicit opt-in. */
+  includeSymptomNotes?: boolean;
+}
 
 export interface DoctorReportData {
   generatedDate: string;
+  reportWindowStart: string;
+  reportWindowEnd: string;
   userAge?: number;
   consistencyRate7d: number;
+  plannedItems7d: number;
+  completedItems7d: number;
   totalLogs30d: number;
+  averageBreathingRating: number | null;
   averageBreathingComfort: string;
   topTriggers: { trigger: string; count: number }[];
   activeMedicationReminders: string[];
+  symptomNotesIncluded: boolean;
   reportText: string;
 }
 
-export async function generateDoctorReport(userAge?: number): Promise<DoctorReportData> {
-  const weekly = await planRepo.getRecentCompletionRate(7);
-  const avgRate =
-    weekly.length > 0
-      ? Math.round(weekly.reduce((acc, c) => acc + c.rate, 0) / weekly.length)
-      : 0;
+function displayTrigger(trigger: string): string {
+  return trigger
+    .split(' ')
+    .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
 
-  const symptomLogs = await symptomRepo.getRecentLogs(30);
-  const topTriggers = await symptomRepo.getTriggerFrequency(30);
-  const reminders = await habitRepo.getMedicationReminders();
+export async function generateDoctorReport(
+  options: DoctorReportOptions = {}
+): Promise<DoctorReportData> {
+  const today = getLocalDateString();
+  const weekStart = getLocalDateStringDaysAgo(6);
+  const monthStart = getLocalDateStringDaysAgo(29);
 
-  let avgDifficulty = 1;
-  if (symptomLogs.length > 0) {
-    const sum = symptomLogs.reduce((acc, curr) => acc + curr.breathing_difficulty, 0);
-    avgDifficulty = Math.round((sum / symptomLogs.length) * 10) / 10;
-  }
+  const [weeklyStats, symptomLogs, topTriggers, reminders] = await Promise.all([
+    planRepo.getCompletionHistory(weekStart, today),
+    symptomRepo.getLogsInRange(monthStart, today),
+    symptomRepo.getTriggerFrequency(30),
+    habitRepo.getMedicationReminders(),
+  ]);
+
+  // Adherence is completed items / planned items over the whole week. Averaging
+  // seven daily percentages would over-weight days with a single checklist item.
+  const {
+    plannedItems: plannedItems7d,
+    completedItems: completedItems7d,
+    consistencyRate: consistencyRate7d,
+  } = summarizeAdherence(weeklyStats);
+
+  const averageBreathingRating = calculateAverageBreathingRating(symptomLogs);
+  const averageBreathingComfort =
+    averageBreathingRating === null ? 'No check-ins' : `${averageBreathingRating} / 5`;
 
   const generatedDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
@@ -43,44 +76,65 @@ export async function generateDoctorReport(userAge?: number): Promise<DoctorRepo
     day: 'numeric',
   });
 
-  const remindersList = reminders
-    .filter((r) => r.is_active === 1)
-    .map((r) => `- ${r.label} (Scheduled: ${r.time}, ${r.frequency})`)
-    .join('\n') || 'None recorded.';
+  const activeReminders = reminders.filter((reminder) => reminder.is_active === 1);
+  const remindersList =
+    activeReminders
+      .map((reminder) => `- ${reminder.label} (Scheduled: ${reminder.time}, ${reminder.frequency})`)
+      .join('\n') || 'None recorded.';
 
-  const triggersList = topTriggers
-    .slice(0, 5)
-    .map((t) => `- ${t.trigger}: noticed in ${t.count} logs`)
-    .join('\n') || 'No recurring triggers logged.';
+  const triggersList =
+    topTriggers
+      .slice(0, 5)
+      .map((trigger) => `- ${displayTrigger(trigger.trigger)}: noticed in ${trigger.count} logs`)
+      .join('\n') || 'No recurring triggers logged.';
+
+  const includeSymptomNotes = options.includeSymptomNotes === true;
+  const symptomNotes = symptomLogs.filter((log) => Boolean(log.notes?.trim()));
+  const notesSection = includeSymptomNotes
+    ? symptomNotes
+        .slice(0, 5)
+        .map(
+          (log) =>
+            `[${log.date}] Breathing: ${log.breathing_difficulty}/5. Note: "${log.notes?.trim()}"`
+        )
+        .join('\n') || 'No free-text symptom notes were recorded in this period.'
+    : 'Free-text symptom notes are excluded from this export by default because they may contain sensitive details. They can be included with explicit opt-in.';
 
   const reportText = `=====================================================
 ${Disclaimers.doctorExportHeader}
 App: ${APP_NAME} | Date: ${generatedDate}
-Patient Age: ${userAge ? userAge : 'Not specified'}
+Reporting window: ${monthStart} to ${today} (inclusive)
+Patient Age: ${options.userAge ? options.userAge : 'Not specified'}
 =====================================================
 
 1. ROUTINE & HABIT CONSISTENCY
 -----------------------------------------------------
-- 7-Day Checklist Adherence Rate: ${avgRate}%
+- 7-Day Checklist Adherence (${weekStart} to ${today}): ${consistencyRate7d}%
+- Checklist items completed: ${completedItems7d} of ${plannedItems7d} planned
 - Active User-Configured Reminders:
 ${remindersList}
 
 2. PATIENT-REPORTED OBSERVATIONS (LAST 30 DAYS)
 -----------------------------------------------------
 - Total Symptom Check-ins Logged: ${symptomLogs.length}
-- Average Breathing Rating: ${avgDifficulty} / 5 (1 = fully comfortable, 5 = severe)
+- Average Breathing Rating: ${
+    averageBreathingRating === null
+      ? 'No check-ins logged in this period.'
+      : `${averageBreathingRating} / 5 (1 = fully comfortable, 5 = severe)`
+  }
 - Most Frequently Noticed Environmental Triggers:
 ${triggersList}
 
 3. PATIENT NOTES & RECENT ENTRIES
 -----------------------------------------------------
-${
-  symptomLogs
-    .filter((l) => Boolean(l.notes))
-    .slice(0, 3)
-    .map((l) => `[${l.date}] Breathing: ${l.breathing_difficulty}/5. Note: "${l.notes}"`)
-    .join('\n') || 'No subjective text notes recorded.'
-}
+${notesSection}
+
+=====================================================
+DATA EXCLUSIONS
+-----------------------------------------------------
+- Doctor advice notes saved in this app are local-only and are never included in an export.
+- Chat conversations with the in-app companion are not included.
+- No cloud data is merged into this report; it is generated from this device's account-scoped records.
 
 =====================================================
 IMPORTANT CLINICAL NOTICE:
@@ -91,12 +145,20 @@ All decisions regarding diagnosis, treatment, and medications remain solely at t
 
   return {
     generatedDate,
-    userAge,
-    consistencyRate7d: avgRate,
+    reportWindowStart: monthStart,
+    reportWindowEnd: today,
+    userAge: options.userAge,
+    consistencyRate7d,
+    plannedItems7d,
+    completedItems7d,
     totalLogs30d: symptomLogs.length,
-    averageBreathingComfort: `${avgDifficulty} / 5`,
+    averageBreathingRating,
+    averageBreathingComfort,
     topTriggers,
-    activeMedicationReminders: reminders.map((r) => `${r.label} (${r.time})`),
+    activeMedicationReminders: activeReminders.map(
+      (reminder) => `${reminder.label} (${reminder.time})`
+    ),
+    symptomNotesIncluded: includeSymptomNotes,
     reportText,
   };
 }

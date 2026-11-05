@@ -49,8 +49,14 @@ export const ChecklistItem: React.FC<ChecklistItemProps> = ({
         onPress={onToggleComplete}
         style={styles.checkboxTouch}
         accessibilityRole="checkbox"
-        accessibilityState={{ checked: isCompleted }}
-        accessibilityLabel={`Mark ${item.title} as ${isCompleted ? 'pending' : 'completed'}`}
+        accessibilityState={{ checked: isSkipped ? 'mixed' : isCompleted }}
+        aria-checked={isSkipped ? 'mixed' : isCompleted}
+        accessibilityLabel={`${item.title}, ${isCompleted ? 'completed' : isSkipped ? 'skipped' : 'pending'}`}
+        accessibilityHint={
+          isCompleted
+            ? 'Marks this item as pending again.'
+            : 'Marks this item as completed.'
+        }
       >
         <View
           style={[
@@ -59,8 +65,16 @@ export const ChecklistItem: React.FC<ChecklistItemProps> = ({
             isSkipped && styles.checkboxSkipped,
           ]}
         >
-          {isCompleted && <Text style={styles.checkMark}>✓</Text>}
-          {isSkipped && <Text style={styles.skipMark}>–</Text>}
+          {isCompleted && (
+            <Text style={styles.checkMark} accessibilityElementsHidden importantForAccessibility="no">
+              ✓
+            </Text>
+          )}
+          {isSkipped && (
+            <Text style={styles.skipMark} accessibilityElementsHidden importantForAccessibility="no">
+              –
+            </Text>
+          )}
         </View>
       </TouchableOpacity>
 
@@ -68,16 +82,24 @@ export const ChecklistItem: React.FC<ChecklistItemProps> = ({
         activeOpacity={0.7}
         onPress={onOpenDetails}
         style={styles.contentTouch}
+        accessibilityRole="button"
+        accessibilityLabel={`Open details for ${item.title}`}
+        accessibilityHint="Lets you add a note, mark the item completed, or skip it for today."
       >
         <View style={styles.titleRow}>
-          <Text style={styles.categoryIcon}>{getCategoryIcon(item.category)}</Text>
+          <Text
+            style={styles.categoryIcon}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          >
+            {getCategoryIcon(item.category)}
+          </Text>
           <Text
             style={[
               styles.title,
               isCompleted && styles.titleCompleted,
               isSkipped && styles.titleSkipped,
             ]}
-            numberOfLines={2}
           >
             {item.title}
           </Text>
@@ -87,9 +109,7 @@ export const ChecklistItem: React.FC<ChecklistItemProps> = ({
         </View>
 
         {item.description ? (
-          <Text style={styles.description} numberOfLines={2}>
-            {item.description}
-          </Text>
+          <Text style={styles.description}>{item.description}</Text>
         ) : null}
 
         {item.notes ? (

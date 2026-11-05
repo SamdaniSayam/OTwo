@@ -1,41 +1,65 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatMessage, generateOnDeviceResponse } from '../services/ai/onDeviceEngine';
+import { getActiveLocalUserId, scopedStorageKey } from '../utils/localScope';
+
+type EmergencyKind = 'medical' | 'crisis' | null;
 
 interface CompanionState {
   messages: ChatMessage[];
   isTyping: boolean;
   emergencyAlertVisible: boolean;
   emergencyMessage: string;
+  emergencyKind: EmergencyKind;
   loadMessages: () => Promise<void>;
   sendMessage: (text: string) => Promise<void>;
   dismissEmergencyAlert: () => void;
   clearHistory: () => Promise<void>;
+  reset: () => void;
 }
 
-const CHAT_STORAGE_KEY = '@otwo_companion_chat_history';
+const CHAT_STORAGE_BASE_KEY = '@otwo_companion_chat_history';
 
-const INITIAL_WELCOME_MESSAGE: ChatMessage = {
-  id: 'welcome-1',
-  sender: 'assistant',
-  text: 'Welcome to your daily companion space. I can help you plan your routine, stay consistent, and explore healthy lifestyle habits.\n\n🌿 Note: This is not medical advice. Please follow your doctor’s guidance.',
-  timestamp: new Date().toISOString(),
-};
+function createWelcomeMessage(): ChatMessage {
+  return {
+    id: 'welcome-1',
+    sender: 'assistant',
+    text:
+      'Welcome to your daily companion space. I can help you plan your routine, stay consistent, and explore healthy lifestyle habits.\n\n🌿 Note: This is not medical advice. Please follow your doctor’s guidance.',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function chatStorageKey(): string | null {
+  const userId = getActiveLocalUserId();
+  return userId ? scopedStorageKey(CHAT_STORAGE_BASE_KEY, userId) : null;
+}
 
 export const useCompanionStore = create<CompanionState>((set, get) => ({
-  messages: [INITIAL_WELCOME_MESSAGE],
+  messages: [createWelcomeMessage()],
   isTyping: false,
   emergencyAlertVisible: false,
   emergencyMessage: '',
+  emergencyKind: null,
 
   loadMessages: async () => {
+    const key = chatStorageKey();
+    if (!key) {
+      set({ messages: [createWelcomeMessage()] });
+      return;
+    }
     try {
-      const stored = await AsyncStorage.getItem(CHAT_STORAGE_KEY);
+      const stored = await AsyncStorage.getItem(key);
       if (stored) {
-        set({ messages: JSON.parse(stored) });
+        const parsed: unknown = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          set({ messages: parsed as ChatMessage[] });
+          return;
+        }
       }
+      set({ messages: [createWelcomeMessage()] });
     } catch {
-      // Ignore
+      set({ messages: [createWelcomeMessage()] });
     }
   },
 
@@ -52,10 +76,8 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
     const currentList = [...get().messages, userMsg];
     set({ messages: currentList, isTyping: true });
 
-    // Process on-device response
-    const { reply, isEmergency } = generateOnDeviceResponse(text);
+    const { reply, isEmergency, isCrisis } = generateOnDeviceResponse(text);
 
-    // Subtle simulated typing delay for pleasant UX without lag (300ms)
     setTimeout(async () => {
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -63,6 +85,7 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
         text: reply,
         timestamp: new Date().toISOString(),
         isEmergencyAlert: isEmergency,
+        isCrisisAlert: isCrisis,
       };
 
       const updated = [...currentList, assistantMsg];
@@ -71,9 +94,13 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
         isTyping: false,
         emergencyAlertVisible: isEmergency,
         emergencyMessage: isEmergency ? reply : '',
+        emergencyKind: isEmergency ? (isCrisis ? 'crisis' : 'medical') : null,
       });
 
-      await AsyncStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(updated));
+      const key = chatStorageKey();
+      if (key) {
+        await AsyncStorage.setItem(key, JSON.stringify(updated));
+      }
     }, 250);
   },
 
@@ -82,7 +109,19 @@ export const useCompanionStore = create<CompanionState>((set, get) => ({
   },
 
   clearHistory: async () => {
-    await AsyncStorage.removeItem(CHAT_STORAGE_KEY);
-    set({ messages: [INITIAL_WELCOME_MESSAGE] });
+    const key = chatStorageKey();
+    if (key) {
+      await AsyncStorage.removeItem(key);
+    }
+    set({ messages: [createWelcomeMessage()] });
   },
+
+  reset: () =>
+    set({
+      messages: [createWelcomeMessage()],
+      isTyping: false,
+      emergencyAlertVisible: false,
+      emergencyMessage: '',
+      emergencyKind: null,
+    }),
 }));

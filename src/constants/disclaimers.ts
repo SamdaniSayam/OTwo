@@ -20,8 +20,9 @@ export const Disclaimers = {
   // AI Companion baseline safety notice
   aiCompanionNotice: 'This assistant offers general encouragement and routine planning support. It cannot diagnose symptoms, analyze prescriptions, or replace medical care.',
 
-  // Critical Emergency escalation
-  emergencyEscalation: '🚨 EMERGENCY WARNING: If you are struggling to breathe, your lips or fingernails appear pale or blue, your rescue inhaler provides no relief, or you cannot speak in full sentences, seek immediate emergency medical care or call your local emergency services (e.g. 911 / 112 / 999) without delay.',
+  // Critical Emergency escalation. {{number}} is replaced by the configured number.
+  emergencyEscalation:
+    '🚨 EMERGENCY WARNING: If you are struggling to breathe, your lips or fingernails appear pale or blue, your rescue inhaler provides no relief, or you cannot speak in full sentences, seek immediate emergency medical care or call your local emergency services at {{number}} without delay.',
 
   // Doctor sharing export disclaimer
   doctorExportHeader: `CONFIDENTIAL PATIENT SELF-LOGGED SUMMARY

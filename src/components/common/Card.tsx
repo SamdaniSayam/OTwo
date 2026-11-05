@@ -8,6 +8,8 @@ export interface CardProps {
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   variant?: 'elevated' | 'flat' | 'subtle';
+  accessible?: boolean;
+  accessibilityLabel?: string;
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -15,6 +17,8 @@ export const Card: React.FC<CardProps> = ({
   style,
   onPress,
   variant = 'flat',
+  accessible,
+  accessibilityLabel,
 }) => {
   const getVariantStyle = (): ViewStyle => {
     switch (variant) {
@@ -45,13 +49,24 @@ export const Card: React.FC<CardProps> = ({
         activeOpacity={0.7}
         onPress={onPress}
         style={[styles.base, getVariantStyle(), style]}
+        accessibilityRole="button"
+        accessible={accessible}
+        accessibilityLabel={accessibilityLabel}
       >
         {children}
       </TouchableOpacity>
     );
   }
 
-  return <View style={[styles.base, getVariantStyle(), style]}>{children}</View>;
+  return (
+    <View
+      style={[styles.base, getVariantStyle(), style]}
+      accessible={accessible}
+      accessibilityLabel={accessibilityLabel}
+    >
+      {children}
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({

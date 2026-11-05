@@ -15,7 +15,9 @@ export const DisclaimerBanner: React.FC<DisclaimerBannerProps> = ({
 }) => {
   return (
     <View style={[styles.container, style]}>
-      <Text style={styles.icon}>🌿</Text>
+      <Text style={styles.icon} accessibilityElementsHidden importantForAccessibility="no">
+        🌿
+      </Text>
       <Text style={styles.text}>{customText || Disclaimers.shortBanner}</Text>
     </View>
   );

@@ -34,6 +34,7 @@ export const CompanionScreen = () => {
     sendMessage,
     emergencyAlertVisible,
     emergencyMessage,
+    emergencyKind,
     dismissEmergencyAlert,
   } = useCompanionStore();
 
@@ -42,7 +43,7 @@ export const CompanionScreen = () => {
 
   useEffect(() => {
     loadMessages();
-  }, []);
+  }, [loadMessages]);
 
   const handleSend = () => {
     if (!inputText.trim()) return;
@@ -65,10 +66,14 @@ export const CompanionScreen = () => {
         <View style={styles.header}>
           <View style={styles.titleRow}>
             <View style={styles.botBadge}>
-              <Text style={{ fontSize: 18 }}>🌿</Text>
+              <Text style={{ fontSize: 18 }} accessibilityElementsHidden importantForAccessibility="no">
+                🌿
+              </Text>
             </View>
-            <View>
-              <Text style={styles.title}>Lifestyle Mentor</Text>
+            <View style={styles.headerText}>
+              <Text style={styles.title} accessibilityRole="header">
+                Lifestyle Mentor
+              </Text>
               <Text style={styles.subtitle}>On-device only • Non-medical companion</Text>
             </View>
           </View>
@@ -96,6 +101,9 @@ export const CompanionScreen = () => {
                   isUser ? styles.userBubble : styles.assistantBubble,
                   msg.isEmergencyAlert && styles.emergencyBubble,
                 ]}
+                accessible
+                accessibilityLabel={`${isUser ? 'You' : 'Lifestyle Mentor'}: ${msg.text}`}
+                accessibilityLiveRegion={isUser ? 'none' : 'polite'}
               >
                 <Text
                   style={[
@@ -110,7 +118,12 @@ export const CompanionScreen = () => {
           })}
 
           {isTyping && (
-            <View style={[styles.messageBubble, styles.assistantBubble, { width: 60 }]}>
+            <View
+              style={[styles.messageBubble, styles.assistantBubble, { width: 60 }]}
+              accessible
+              accessibilityLabel="Lifestyle Mentor is typing"
+              accessibilityLiveRegion="polite"
+            >
               <ActivityIndicator size="small" color={Colors.primary} />
             </View>
           )}
@@ -125,6 +138,8 @@ export const CompanionScreen = () => {
                 activeOpacity={0.7}
                 onPress={() => handleChipPress(chip)}
                 style={styles.chip}
+                accessibilityRole="button"
+                accessibilityLabel={`Ask: ${chip}`}
               >
                 <Text style={styles.chipText}>{chip}</Text>
               </TouchableOpacity>
@@ -143,6 +158,8 @@ export const CompanionScreen = () => {
             multiline={false}
             returnKeyType="send"
             onSubmitEditing={handleSend}
+            accessibilityLabel="Message to the lifestyle mentor"
+            accessibilityHint="The mentor replies on this device. It does not provide medical advice."
           />
           <TouchableOpacity
             activeOpacity={0.8}
@@ -152,8 +169,14 @@ export const CompanionScreen = () => {
               styles.sendButton,
               !inputText.trim() && styles.sendButtonDisabled,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
+            accessibilityState={{ disabled: !inputText.trim() }}
+            aria-disabled={!inputText.trim()}
           >
-            <Text style={styles.sendIcon}>➤</Text>
+            <Text style={styles.sendIcon} accessibilityElementsHidden importantForAccessibility="no">
+              ➤
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -163,6 +186,7 @@ export const CompanionScreen = () => {
         visible={emergencyAlertVisible}
         onDismiss={dismissEmergencyAlert}
         customMessage={emergencyMessage}
+        kind={emergencyKind === 'crisis' ? 'crisis' : 'medical'}
       />
     </SafeAreaView>
   );
@@ -186,6 +210,9 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headerText: {
+    flexShrink: 1,
   },
   botBadge: {
     width: 38,
@@ -248,6 +275,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceSubtle,
   },
   chip: {
+    minHeight: 44,
+    justifyContent: 'center',
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,

@@ -34,10 +34,11 @@ CREATE POLICY "Users can delete own profile"
     USING (auth.uid() = id);
 
 -- 2. Onboarding Questionnaire Responses
+-- Only non-sensitive inputs used to rebuild a local plan are stored here.
+-- Doctor advice notes are local-only and are never uploaded.
 CREATE TABLE IF NOT EXISTS public.onboarding_responses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    doctor_recommendations_encrypted TEXT, -- Client-side encrypted string
     medication_reminders_setup JSONB,     -- User-defined reminder times only
     baseline_habits JSONB,                -- Baseline sleep, movement, hydration, stress
     personal_goals JSONB,                 -- User-selected lifestyle goals
@@ -53,24 +54,8 @@ CREATE POLICY "Users can manage own onboarding responses"
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
--- 3. Sync Snapshots (Optional Encrypted Backup of Local Progress)
-CREATE TABLE IF NOT EXISTS public.sync_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    last_sync_timestamp TIMESTAMPTZ DEFAULT NOW(),
-    encrypted_payload TEXT NOT NULL,      -- AES-GCM encrypted state snapshot
-    client_version TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE public.sync_snapshots ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage own sync snapshots"
-    ON public.sync_snapshots FOR ALL
-    USING (auth.uid() = user_id)
-    WITH CHECK (auth.uid() = user_id);
-
--- 4. Audit Log (Security compliance, deletion tracking)
+-- 3. Audit Log (Security compliance, deletion tracking)
+-- Server-managed only. Clients may read their own rows.
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -84,10 +69,6 @@ ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own audit logs"
     ON public.audit_logs FOR SELECT
     USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own audit logs"
-    ON public.audit_logs FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
 
 -- Triggers for updated_at timestamps
 CREATE OR REPLACE FUNCTION public.handle_updated_at()

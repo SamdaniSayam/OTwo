@@ -17,6 +17,8 @@ import { DisclaimerBanner } from '../../components/common/DisclaimerBanner';
 import { useHabitStore } from '../../store/useHabitStore';
 import { AddReminderModal } from './AddReminderModal';
 import { Disclaimers } from '../../constants/disclaimers';
+import { parseLocalDate } from '../../utils/date';
+import { openNotificationSettings } from '../../services/notifications';
 
 export const HabitsScreen = () => {
   const {
@@ -24,17 +26,21 @@ export const HabitsScreen = () => {
     medicationReminders,
     weeklyConsistency,
     insights,
+    notificationPermission,
+    scheduledReminderCount,
     isLoading,
     loadHabits,
     addReminder,
     toggleReminder,
+    enableNotifications,
+    disableNotifications,
   } = useHabitStore();
 
   const [addModalVisible, setAddModalVisible] = useState(false);
 
   useEffect(() => {
     loadHabits();
-  }, []);
+  }, [loadHabits]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -45,7 +51,9 @@ export const HabitsScreen = () => {
           <RefreshControl refreshing={isLoading} onRefresh={loadHabits} colors={[Colors.primary]} />
         }
       >
-        <Text style={styles.screenTitle}>Habits & Routine Consistency</Text>
+        <Text style={styles.screenTitle} accessibilityRole="header">
+          Habits & Routine Consistency
+        </Text>
         <Text style={styles.screenSubtitle}>
           Building steady daily rhythms without pressure
         </Text>
@@ -54,14 +62,30 @@ export const HabitsScreen = () => {
 
         {/* Weekly Consistency Card */}
         <Card style={styles.card}>
-          <Text style={styles.cardHeader}>7-Day Routine Consistency</Text>
+          <Text style={styles.cardHeader} accessibilityRole="header">
+            7-Day Routine Consistency
+          </Text>
           <View style={styles.weeklyRow}>
             {weeklyConsistency.map((day) => {
-              const dayName = new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', {
+              const dayName = parseLocalDate(day.date).toLocaleDateString('en-US', {
                 weekday: 'narrow',
               });
               return (
-                <View key={day.date} style={styles.dayCol}>
+                <View
+                  key={day.date}
+                  style={styles.dayCol}
+                  accessible
+                  accessibilityRole="progressbar"
+                  accessibilityValue={{
+                    min: 0,
+                    max: 100,
+                    now: day.rate,
+                    text: `${day.rate}% of planned items completed`,
+                  }}
+                  accessibilityLabel={parseLocalDate(day.date).toLocaleDateString('en-US', {
+                    weekday: 'long',
+                  })}
+                >
                   <View style={styles.barTrack}>
                     <View style={[styles.barFill, { height: `${Math.max(day.rate, 8)}%` }]} />
                   </View>
@@ -76,7 +100,9 @@ export const HabitsScreen = () => {
         {/* Behavioral Insights */}
         {insights.length > 0 && (
           <Card style={styles.insightsCard}>
-            <Text style={styles.insightsTitle}>Gentle Insights</Text>
+            <Text style={styles.insightsTitle} accessibilityRole="header">
+              Gentle Insights
+            </Text>
             {insights.map((insight, idx) => (
               <Text key={idx} style={styles.insightText}>
                 {insight}
@@ -87,7 +113,9 @@ export const HabitsScreen = () => {
 
         {/* Habit Streaks */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Active Habit Streaks</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            Active Habit Streaks
+          </Text>
         </View>
 
         {habits.map((habit) => (
@@ -96,8 +124,14 @@ export const HabitsScreen = () => {
               <Text style={styles.habitName}>{habit.name}</Text>
               <Text style={styles.habitFreq}>{habit.target_frequency.toUpperCase()}</Text>
             </View>
-            <View style={styles.streakContainer}>
-              <Text style={styles.fireIcon}>🔥</Text>
+            <View
+              style={styles.streakContainer}
+              accessible
+              accessibilityLabel={`Current streak ${habit.current_streak} days. Best streak ${habit.best_streak} days.`}
+            >
+              <Text style={styles.fireIcon} accessibilityElementsHidden importantForAccessibility="no">
+                🔥
+              </Text>
               <View>
                 <Text style={styles.streakCount}>{habit.current_streak} days</Text>
                 <Text style={styles.bestStreak}>Best: {habit.best_streak}d</Text>
@@ -109,8 +143,10 @@ export const HabitsScreen = () => {
         {/* Medication Reminders Section */}
         <View style={styles.sectionHeaderRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.sectionTitle}>Time-of-Day Reminders</Text>
-            <Text style={styles.reminderSubtitle}>Reminder-only alerts based on your doctor's plan</Text>
+            <Text style={styles.sectionTitle} accessibilityRole="header">
+              Time-of-Day Reminders
+            </Text>
+            <Text style={styles.reminderSubtitle}>{"Reminder-only alerts based on your doctor's plan"}</Text>
           </View>
           <Button
             title="+ Add"
@@ -123,20 +159,66 @@ export const HabitsScreen = () => {
 
         <Text style={styles.reminderNotice}>{Disclaimers.medicationReminder}</Text>
 
+        <Card style={styles.reminderCard}>
+          <View style={{ flex: 1, paddingRight: Layout.spacing.md }}>
+            <Text style={styles.cardHeader}>System Reminder Notifications</Text>
+            <Text style={styles.reminderStatus} accessibilityLiveRegion="polite">
+              {notificationPermission === 'granted'
+                ? scheduledReminderCount > 0
+                  ? `${scheduledReminderCount} active reminder${scheduledReminderCount === 1 ? '' : 's'} scheduled on this device.`
+                  : 'Notifications are allowed, but there are no active reminder times to schedule.'
+                : notificationPermission === 'denied'
+                  ? 'Notifications are blocked for OTwo in device settings. Reminder times are still shown here.'
+                  : notificationPermission === 'unsupported'
+                    ? 'System notifications are not available on this platform. Reminder times remain visible in the app.'
+                    : 'Allow local notifications to receive your reminder times on this device.'}
+            </Text>
+            {notificationPermission === 'undetermined' ? (
+              <Button
+                title="Enable Reminder Notifications"
+                size="md"
+                onPress={() => enableNotifications()}
+                style={{ marginTop: Layout.spacing.sm }}
+              />
+            ) : null}
+            {notificationPermission === 'denied' ? (
+              <Button
+                title="Open Device Settings"
+                variant="outline"
+                size="md"
+                onPress={() => openNotificationSettings()}
+                style={{ marginTop: Layout.spacing.sm }}
+              />
+            ) : null}
+            {notificationPermission === 'granted' && scheduledReminderCount > 0 ? (
+              <Button
+                title="Turn Off System Reminders"
+                variant="ghost"
+                size="md"
+                onPress={() => disableNotifications()}
+                style={{ marginTop: Layout.spacing.xs }}
+              />
+            ) : null}
+          </View>
+        </Card>
+
         {medicationReminders.map((rem) => (
           <Card key={rem.id} style={styles.reminderCard}>
             <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                 <Text style={styles.medLabel}>{rem.label}</Text>
-                <Badge label={rem.time} variant="sage" style={{ marginLeft: 8 }} />
+                <Badge label={rem.time} variant="sage" style={{ marginLeft: 4 }} />
               </View>
               <Text style={styles.medFreq}>Frequency: {rem.frequency}</Text>
             </View>
             <Switch
               value={rem.is_active === 1}
               onValueChange={(val) => toggleReminder(rem.id, val)}
-              trackColor={{ false: Colors.border, true: Colors.secondary }}
-              thumbColor={rem.is_active === 1 ? Colors.primary : '#F4F4F4'}
+              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+              thumbColor={Colors.surface}
+              accessibilityLabel={`${rem.label} reminder`}
+              accessibilityState={{ checked: rem.is_active === 1 }}
+              accessibilityHint="Turns this reminder time on or off. It does not record whether medication was taken."
             />
           </Card>
         ))}
@@ -183,7 +265,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 120,
+    minHeight: 120,
     paddingTop: Layout.spacing.sm,
   },
   dayCol: {
@@ -210,7 +292,8 @@ const styles = StyleSheet.create({
     marginTop: Layout.spacing.xs,
   },
   rateLabel: {
-    fontSize: 10,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
     color: Colors.textMuted,
   },
   insightsCard: {
@@ -235,6 +318,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Layout.spacing.sm,
     marginTop: Layout.spacing.lg,
     marginBottom: Layout.spacing.xs,
   },
@@ -249,7 +334,6 @@ const styles = StyleSheet.create({
   },
   addBtn: {
     paddingHorizontal: Layout.spacing.md,
-    height: 40,
   },
   reminderNotice: {
     fontSize: Layout.fontSize.caption,
@@ -257,9 +341,17 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginBottom: Layout.spacing.xs,
   },
+  reminderStatus: {
+    fontSize: Layout.fontSize.caption,
+    color: Colors.textSecondary,
+    lineHeight: Layout.lineHeight.caption,
+    marginTop: Layout.spacing.xs,
+  },
   habitCard: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
+    gap: Layout.spacing.sm,
     marginVertical: Layout.spacing.xs,
   },
   habitName: {
@@ -290,12 +382,15 @@ const styles = StyleSheet.create({
     color: Colors.streakBadgeText,
   },
   bestStreak: {
-    fontSize: 10,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
     color: Colors.streakBadgeText,
   },
   reminderCard: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
+    gap: Layout.spacing.sm,
     marginVertical: Layout.spacing.xs,
   },
   medLabel: {

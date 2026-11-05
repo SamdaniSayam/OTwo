@@ -1,30 +1,44 @@
 /**
  * Free Public Environment Awareness Service (Open-Meteo)
- * Read-only air quality and weather data. No API key required.
- * Graceful fallback when offline.
+ * Read-only air quality data. No API key required.
+ *
+ * Coordinates must come from the user's device with permission. There is no
+ * fallback city: a fabricated local reading could discourage someone from
+ * checking their actual conditions. Returns null when live data is unavailable.
  */
 export interface EnvironmentData {
-  aqi: number; // European or US AQI index (1 - 100+)
+  aqi: number; // European AQI index
   aqiCategory: 'Good' | 'Moderate' | 'Sensitive' | 'Unhealthy';
-  tempC: number;
-  humidity: number;
   summary: string;
   isStale: boolean;
 }
 
+export function isValidCoordinate(latitude: number, longitude: number): boolean {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
 export async function fetchEnvironmentData(
-  latitude: number = 40.7128,
-  longitude: number = -74.006
-): Promise<EnvironmentData> {
+  latitude: number,
+  longitude: number
+): Promise<EnvironmentData | null> {
+  if (!isValidCoordinate(latitude, longitude)) return null;
+
   try {
-    // Open-Meteo Air Quality & Weather API (Free, no API key needed)
-    const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=european_aqi,pm2_5,pm10`;
+    const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=european_aqi`;
     const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    if (!response.ok) {
-      throw new Error('Network error');
-    }
+    if (!response.ok) return null;
+
     const data = await response.json();
-    const aqi = data?.current?.european_aqi || 25;
+    const rawAqi = data?.current?.european_aqi;
+    const aqi = typeof rawAqi === 'number' && Number.isFinite(rawAqi) ? rawAqi : null;
+    if (aqi === null) return null;
 
     let aqiCategory: EnvironmentData['aqiCategory'] = 'Good';
     if (aqi > 75) aqiCategory = 'Unhealthy';
@@ -34,20 +48,10 @@ export async function fetchEnvironmentData(
     return {
       aqi,
       aqiCategory,
-      tempC: 21,
-      humidity: 50,
-      summary: `AQI ${aqi} (${aqiCategory}) - Air conditions normal`,
+      summary: `European AQI ${aqi} (${aqiCategory})`,
       isStale: false,
     };
   } catch {
-    // Offline fallback: returns calm cached/default state
-    return {
-      aqi: 22,
-      aqiCategory: 'Good',
-      tempC: 20,
-      humidity: 48,
-      summary: 'Air quality normal (Offline mode)',
-      isStale: true,
-    };
+    return null;
   }
 }

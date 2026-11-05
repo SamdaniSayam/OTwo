@@ -1,10 +1,11 @@
 /**
- * Supabase Client Configuration
- * Handles Auth, initial profile sync, and RLS interactions.
- * Works seamlessly offline with local fallback when credentials are not yet configured.
+ * Optional Supabase client configuration.
+ *
+ * Cloud authentication is fail-closed: when the public URL and anon key are not
+ * configured, sign-in and sign-up are disabled. Guest mode remains local-only.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import { secureAuthStorage } from '../services/secureStorage';
 
 // Default public sandbox or project credentials can be placed here or in .env
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder-project.supabase.co';
@@ -16,7 +17,9 @@ export const isSupabaseConfigured =
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    storage: AsyncStorage,
+    storage: secureAuthStorage,
+    storageKey: 'otwo-auth-session',
+    flowType: 'pkce',
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

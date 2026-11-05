@@ -15,6 +15,7 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { DisclaimerBanner } from '../../components/common/DisclaimerBanner';
 import { useAuthStore } from '../../store/useAuthStore';
+import { isSupabaseConfigured } from '../../db/supabase';
 import { APP_NAME } from '../../constants/app';
 
 export const SignupScreen = ({ navigation }: any) => {
@@ -22,6 +23,7 @@ export const SignupScreen = ({ navigation }: any) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [noticeMsg, setNoticeMsg] = useState('');
   const { signup, isLoading } = useAuthStore();
 
   const handleSignup = async () => {
@@ -38,9 +40,12 @@ export const SignupScreen = ({ navigation }: any) => {
       return;
     }
     setErrorMsg('');
+    setNoticeMsg('');
     const res = await signup(email.trim(), password);
     if (!res.success && res.error) {
       setErrorMsg(res.error);
+    } else if (res.message) {
+      setNoticeMsg(res.message);
     }
   };
 
@@ -56,9 +61,13 @@ export const SignupScreen = ({ navigation }: any) => {
         >
           <View style={styles.header}>
             <View style={styles.logoBadge}>
-              <Text style={styles.logoText}>🌱</Text>
+              <Text style={styles.logoText} accessibilityElementsHidden importantForAccessibility="no">
+                🌱
+              </Text>
             </View>
-            <Text style={styles.title}>Join {APP_NAME}</Text>
+            <Text style={styles.title} accessibilityRole="header">
+              Join {APP_NAME}
+            </Text>
             <Text style={styles.subtitle}>Begin your calm daily routine support</Text>
           </View>
 
@@ -66,15 +75,43 @@ export const SignupScreen = ({ navigation }: any) => {
 
           <View style={styles.formCard}>
             <Text style={styles.cardTitle}>Create Account</Text>
-            <Text style={styles.cardSubtitle}>Your health data remains private and local</Text>
+            <Text style={styles.cardSubtitle}>
+              Health data stays on this device. Only non-sensitive plan inputs sync when cloud is configured.
+            </Text>
 
-            {errorMsg ? <Text style={styles.errorBanner}>{errorMsg}</Text> : null}
+            {!isSupabaseConfigured ? (
+              <Text style={styles.infoBanner}>
+                Cloud account creation is not configured in this build. Use guest mode on the login
+                screen, or configure Supabase credentials.
+              </Text>
+            ) : null}
+
+            {errorMsg ? (
+              <Text
+                style={styles.errorBanner}
+                accessibilityLiveRegion="assertive"
+                accessibilityRole="alert"
+              >
+                {errorMsg}
+              </Text>
+            ) : null}
+            {noticeMsg ? (
+              <Text
+                style={styles.successBanner}
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+              >
+                {noticeMsg}
+              </Text>
+            ) : null}
 
             <Input
               label="Email Address"
               placeholder="you@example.com"
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
               value={email}
               onChangeText={setEmail}
             />
@@ -83,6 +120,8 @@ export const SignupScreen = ({ navigation }: any) => {
               label="Password (min 6 chars)"
               placeholder="••••••••"
               isPassword
+              autoComplete="new-password"
+              textContentType="newPassword"
               value={password}
               onChangeText={setPassword}
             />
@@ -91,6 +130,8 @@ export const SignupScreen = ({ navigation }: any) => {
               label="Confirm Password"
               placeholder="••••••••"
               isPassword
+              autoComplete="new-password"
+              textContentType="newPassword"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
             />
@@ -188,6 +229,23 @@ const styles = StyleSheet.create({
     padding: Layout.spacing.sm,
     borderRadius: Layout.borderRadius.sm,
     fontSize: Layout.fontSize.bodySm,
+    marginBottom: Layout.spacing.md,
+  },
+  successBanner: {
+    backgroundColor: Colors.successLight,
+    color: Colors.primaryDark,
+    padding: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.sm,
+    fontSize: Layout.fontSize.bodySm,
+    marginBottom: Layout.spacing.md,
+  },
+  infoBanner: {
+    backgroundColor: Colors.surfaceSubtle,
+    color: Colors.textSecondary,
+    padding: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.sm,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
     marginBottom: Layout.spacing.md,
   },
   actionButton: {

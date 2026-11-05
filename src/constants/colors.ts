@@ -21,15 +21,15 @@ export const Colors = {
   // Typography
   textPrimary: '#1A1A1A',       // Deep charcoal
   textSecondary: '#5A5A5A',     // Soft gray
-  textMuted: '#8A928A',         // Muted gray-green
+  textMuted: '#667066',         // Muted gray-green (AA contrast on light surfaces)
   textInverse: '#FFFFFF',       // White on dark buttons
 
   // Status & Feedback (Muted & Calm)
   success: '#2F5D50',
   successLight: '#E8F5E9',
-  warning: '#D97706',           // Muted Amber
+  warning: '#92400E',           // Dark amber for AA text contrast
   warningLight: '#FEF3C7',
-  error: '#D9534F',             // Muted Coral (used sparingly)
+  error: '#B42318',             // Deep coral (AA contrast, used sparingly)
   errorLight: '#FDE8E8',
 
   // Borders & Dividers

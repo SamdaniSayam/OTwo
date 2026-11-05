@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { Layout } from '../../constants/layout';
 import { DailyPlanRow } from '../../db/sqlite';
@@ -43,44 +43,54 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.content}>
+        <View style={styles.content} accessibilityViewIsModal role="dialog" aria-modal>
           <View style={styles.headerRow}>
-            <Text style={styles.title}>{item.title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={styles.title} accessibilityRole="header">
+              {item.title}
+            </Text>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close item details"
+              style={styles.closeButton}
+            >
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {item.description ? (
-            <Text style={styles.description}>{item.description}</Text>
-          ) : null}
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {item.description ? (
+              <Text style={styles.description}>{item.description}</Text>
+            ) : null}
 
-          <Input
-            label="Personal Note or Reason (Optional)"
-            placeholder="e.g. Completed after breakfast, or felt tired today..."
-            value={note}
-            onChangeText={setNote}
-            multiline
-            numberOfLines={2}
-            containerStyle={{ marginTop: Layout.spacing.md }}
-          />
+            <Input
+              label="Personal Note or Reason (Optional)"
+              placeholder="e.g. Completed after breakfast, or felt tired today..."
+              value={note}
+              onChangeText={setNote}
+              multiline
+              numberOfLines={2}
+              containerStyle={{ marginTop: Layout.spacing.md }}
+            />
 
-          <View style={styles.actionButtons}>
-            <Button
-              title="Mark as Completed ✓"
-              variant="primary"
-              size="lg"
-              onPress={handleComplete}
-              style={{ width: '100%' }}
-            />
-            <Button
-              title="Skip Item for Today"
-              variant="outline"
-              size="md"
-              onPress={handleSkip}
-              style={{ width: '100%', borderColor: Colors.border }}
-            />
-          </View>
+            <View style={styles.actionButtons}>
+              <Button
+                title="Mark as Completed ✓"
+                variant="primary"
+                size="lg"
+                onPress={handleComplete}
+                style={{ width: '100%' }}
+              />
+              <Button
+                title="Skip Item for Today"
+                variant="outline"
+                size="md"
+                onPress={handleSkip}
+                style={{ width: '100%', borderColor: Colors.border }}
+              />
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -101,6 +111,7 @@ const styles = StyleSheet.create({
     padding: Layout.spacing.xl,
     width: '100%',
     maxWidth: 420,
+    maxHeight: '90%',
     ...Layout.shadow.card,
   },
   headerRow: {
@@ -115,10 +126,15 @@ const styles = StyleSheet.create({
     fontWeight: Layout.fontWeight.bold,
     color: Colors.textPrimary,
   },
+  closeButton: {
+    minWidth: Layout.touchTarget.minWidth,
+    minHeight: Layout.touchTarget.minHeight,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   closeIcon: {
     fontSize: 18,
     color: Colors.textMuted,
-    paddingLeft: Layout.spacing.sm,
   },
   description: {
     fontSize: Layout.fontSize.bodySm,

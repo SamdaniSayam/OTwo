@@ -5,15 +5,14 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
-  Share,
   TouchableOpacity,
-  Alert,
   Platform,
 } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { Layout } from '../../constants/layout';
 import { Button } from '../../components/common/Button';
 import { DoctorReportData } from '../../services/reportGenerator';
+import { exportReportText } from '../../services/reportExport';
 
 export interface DoctorReportModalProps {
   visible: boolean;
@@ -27,17 +26,26 @@ export const DoctorReportModal: React.FC<DoctorReportModalProps> = ({
   reportData,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   if (!reportData) return null;
 
   const handleShare = async () => {
+    setIsExporting(true);
+    setExportError('');
+    setCopied(false);
     try {
-      await Share.share({
-        title: 'OTwo - Self-Logged Health Routine Summary',
-        message: reportData.reportText,
-      });
-    } catch {
-      // Ignored
+      await exportReportText(reportData.reportText);
+      setCopied(true);
+    } catch (error) {
+      setExportError(
+        error instanceof Error
+          ? `Export failed: ${error.message}`
+          : 'Export failed. The report was not shared.'
+      );
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -49,13 +57,21 @@ export const DoctorReportModal: React.FC<DoctorReportModalProps> = ({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
-        <View style={styles.container}>
+        <View style={styles.container} accessibilityViewIsModal role="dialog" aria-modal>
           <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Doctor Visit Summary</Text>
+            <View style={styles.headerText}>
+              <Text style={styles.title} accessibilityRole="header">
+                Doctor Visit Summary
+              </Text>
               <Text style={styles.subtitle}>Self-reported habit & symptom log</Text>
             </View>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close doctor visit summary"
+              style={styles.closeButton}
+            >
               <Text style={styles.closeIcon}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -72,12 +88,39 @@ export const DoctorReportModal: React.FC<DoctorReportModalProps> = ({
               </View>
               <View style={styles.statBox}>
                 <Text style={styles.statVal}>{reportData.averageBreathingComfort}</Text>
-                <Text style={styles.statLabel}>Avg Comfort</Text>
+                <Text style={styles.statLabel}>Avg Breathing</Text>
               </View>
             </View>
 
+            <Text style={styles.exportNotice}>
+              Export creates a temporary text file on this device. Free-text symptom notes are{' '}
+              {reportData.symptomNotesIncluded ? 'included' : 'excluded'} for this report. Doctor
+              advice notes are never included.
+            </Text>
+
+            {exportError ? (
+              <Text
+                style={styles.exportError}
+                accessibilityLiveRegion="assertive"
+                accessibilityRole="alert"
+              >
+                {exportError}
+              </Text>
+            ) : null}
+            {copied ? (
+              <Text
+                style={styles.exportSuccess}
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+              >
+                Report file exported.
+              </Text>
+            ) : null}
+
             <View style={styles.textContainer}>
-              <Text style={styles.rawText}>{reportData.reportText}</Text>
+              <Text style={styles.rawText} selectable>
+                {reportData.reportText}
+              </Text>
             </View>
           </ScrollView>
 
@@ -86,6 +129,7 @@ export const DoctorReportModal: React.FC<DoctorReportModalProps> = ({
               title="Share / Export Summary"
               size="lg"
               onPress={handleShare}
+              loading={isExporting}
               style={{ flex: 1 }}
             />
             <Button
@@ -93,7 +137,7 @@ export const DoctorReportModal: React.FC<DoctorReportModalProps> = ({
               variant="outline"
               size="lg"
               onPress={onClose}
-              style={{ marginLeft: Layout.spacing.sm, paddingHorizontal: Layout.spacing.lg }}
+              style={{ paddingHorizontal: Layout.spacing.lg }}
             />
           </View>
         </View>
@@ -119,8 +163,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: Layout.spacing.md,
+  },
+  headerText: {
+    flex: 1,
+    paddingRight: Layout.spacing.sm,
   },
   title: {
     fontSize: Layout.fontSize.heading,
@@ -131,6 +179,12 @@ const styles = StyleSheet.create({
     fontSize: Layout.fontSize.caption,
     color: Colors.textSecondary,
   },
+  closeButton: {
+    minWidth: Layout.touchTarget.minWidth,
+    minHeight: Layout.touchTarget.minHeight,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   closeIcon: {
     fontSize: 20,
     color: Colors.textMuted,
@@ -138,13 +192,38 @@ const styles = StyleSheet.create({
   scrollArea: {
     marginVertical: Layout.spacing.sm,
   },
+  exportNotice: {
+    fontSize: Layout.fontSize.caption,
+    color: Colors.textSecondary,
+    lineHeight: Layout.lineHeight.caption,
+    marginBottom: Layout.spacing.sm,
+  },
+  exportError: {
+    fontSize: Layout.fontSize.bodySm,
+    color: Colors.error,
+    backgroundColor: Colors.errorLight,
+    borderRadius: Layout.borderRadius.sm,
+    padding: Layout.spacing.sm,
+    marginBottom: Layout.spacing.sm,
+  },
+  exportSuccess: {
+    fontSize: Layout.fontSize.bodySm,
+    color: Colors.primaryDark,
+    backgroundColor: Colors.successLight,
+    borderRadius: Layout.borderRadius.sm,
+    padding: Layout.spacing.sm,
+    marginBottom: Layout.spacing.sm,
+  },
   statsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Layout.spacing.sm,
     marginBottom: Layout.spacing.md,
   },
   statBox: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 96,
+    minWidth: 96,
     backgroundColor: Colors.surfaceSubtle,
     borderRadius: Layout.borderRadius.md,
     padding: Layout.spacing.md,
@@ -156,7 +235,8 @@ const styles = StyleSheet.create({
     color: Colors.primaryDark,
   },
   statLabel: {
-    fontSize: Layout.fontSize.caption - 1,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
     color: Colors.textSecondary,
     marginTop: 2,
   },
@@ -169,12 +249,14 @@ const styles = StyleSheet.create({
   },
   rawText: {
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
     color: Colors.textPrimary,
   },
   footerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Layout.spacing.sm,
     marginTop: Layout.spacing.md,
   },
 });

@@ -1,0 +1,10 @@
+# OTwo Edge Functions
+#
+# Deploy with:
+#   supabase functions deploy delete-account
+#
+# The function requires SUPABASE_SERVICE_ROLE_KEY in the project's Edge Function
+# secrets. It never exposes that key to the client.
+
+[functions.delete-account]
+verify_jwt = true

@@ -1,15 +1,28 @@
 /**
  * Authentication & Profile State Management (Zustand)
- * Offline-first: Supports guest mode, offline caching, and Supabase Auth.
+ *
+ * Cloud authentication is fail-closed: if Supabase is not configured, no fake
+ * account is created. Guest mode remains available and is always local-only.
+ * Every local read/write is scoped to the account id set here.
  */
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
+import * as Linking from 'expo-linking';
 import { supabase, isSupabaseConfigured } from '../db/supabase';
 import { templateRepo } from '../db/repositories/templateRepo';
 import { habitRepo } from '../db/repositories/habitRepo';
 import { planRepo } from '../db/repositories/planRepo';
-import { encryptSensitiveText } from '../services/encryption';
-import { PlanTemplateRow } from '../db/sqlite';
+import { notesRepo } from '../db/repositories/notesRepo';
+import { buildInitialDailyPlans, buildOnboardingTemplates, buildStarterHabits } from '../services/onboardingPlan';
+import { wipeAllLocalData } from '../services/localData';
+import { getSecureItem, setSecureItem, deleteSecureItem, SECURE_STORAGE_KEYS } from '../services/secureStorage';
+import { cancelReminderNotifications } from '../services/notifications';
+import { setActiveLocalUserId } from '../utils/localScope';
+import { getLocalDateString } from '../utils/date';
+import { resetInMemoryStores } from './resetStores';
+import { describeAuthError } from '../services/supabaseErrors';
+import { withRetry } from '../services/supabaseRetry';
 
 export interface BaselineHabits {
   sleepHours: number;
@@ -41,236 +54,494 @@ export interface UserProfile {
   isOnboarded: boolean;
 }
 
+interface CloudProfileResult {
+  profile: UserProfile;
+  needsRestore: boolean;
+  restoreAvailable: boolean;
+}
+
 interface AuthState {
   user: UserProfile | null;
   isLoading: boolean;
   error: string | null;
+  needsRestore: boolean;
+  restoreAvailable: boolean;
+  deletionNotice: boolean;
+  passwordRecovery: boolean;
   initializeAuth: () => Promise<void>;
-  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  signup: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  signup: (email: string, pass: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  updatePassword: (password: string) => Promise<{ success: boolean; error?: string }>;
+  handleAuthDeepLink: (url: string) => Promise<{ handled: boolean; error?: string }>;
   continueAsGuest: () => Promise<void>;
   completeOnboarding: (data: OnboardingData) => Promise<{ success: boolean; error?: string }>;
+  restoreSavedPlan: () => Promise<{ success: boolean; error?: string }>;
+  startFreshOnboarding: () => Promise<void>;
   logout: () => Promise<void>;
-  deleteAccount: () => Promise<void>;
+  deleteAccount: () => Promise<{ success: boolean; error?: string }>;
   clearError: () => void;
+  clearDeletionNotice: () => void;
 }
 
-const AUTH_STORAGE_KEY = '@otwo_cached_auth_profile';
+const GUEST_ID_KEY = '@otwo_guest_id';
+
+async function getOrCreateGuestId(): Promise<string> {
+  const existing = await AsyncStorage.getItem(GUEST_ID_KEY);
+  if (existing) return existing;
+  const id = `guest-${Crypto.randomUUID()}`;
+  await AsyncStorage.setItem(GUEST_ID_KEY, id);
+  return id;
+}
+
+async function loadCachedProfile(): Promise<UserProfile | null> {
+  try {
+    const raw = await getSecureItem(SECURE_STORAGE_KEYS.cachedProfile);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UserProfile;
+    if (!parsed || typeof parsed.id !== 'string') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCachedProfile(profile: UserProfile): Promise<void> {
+  await setSecureItem(SECURE_STORAGE_KEYS.cachedProfile, JSON.stringify(profile));
+}
+
+async function deleteCachedProfile(): Promise<void> {
+  try {
+    await deleteSecureItem(SECURE_STORAGE_KEYS.cachedProfile);
+  } catch {
+    // Ignore.
+  }
+}
+
+function normalizeAge(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readLinkParam(url: string, name: string): string | null {
+  const pattern = new RegExp(`[?&#]${name}=([^&#]*)`);
+  const match = pattern.exec(url);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1].replace(/\+/g, ' '));
+  } catch {
+    return match[1];
+  }
+}
+
+function isPasswordRecoveryLink(url: string): boolean {
+  return /(?:^|[/#?&])auth\/reset(?:[/?#&]|$)/i.test(url) || readLinkParam(url, 'type') === 'recovery';
+}
+
+function authRedirectUrl(): string {
+  return Linking.createURL('auth/confirm');
+}
+
+function passwordRecoveryRedirectUrl(): string {
+  return Linking.createURL('auth/reset');
+}
+
+/**
+ * Build the local profile for a signed-in Supabase user.
+ * Cloud onboarding data only restores non-sensitive plan inputs; doctor notes
+ * are never uploaded and cannot be restored from the cloud.
+ */
+async function buildCloudProfile(user: {
+  id: string;
+  email?: string;
+}): Promise<CloudProfileResult> {
+  let cloudOnboarding = false;
+  let age: number | undefined;
+
+  try {
+    const { data: onboarding } = await supabase
+      .from('onboarding_responses')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    cloudOnboarding = Boolean(onboarding);
+  } catch {
+    // Offline: rely on local data.
+  }
+
+  try {
+    const { data: profileRow } = await supabase
+      .from('profiles')
+      .select('age')
+      .eq('id', user.id)
+      .maybeSingle();
+    age = normalizeAge(profileRow?.age);
+  } catch {
+    // Offline: age is optional.
+  }
+
+  setActiveLocalUserId(user.id);
+  const localTemplateCount = await templateRepo.countAll();
+  const needsRestore = cloudOnboarding && localTemplateCount === 0;
+  const isOnboarded = localTemplateCount > 0;
+
+  return {
+    profile: {
+      id: user.id,
+      email: user.email || 'user@example.com',
+      age,
+      isGuest: false,
+      isOnboarded,
+    },
+    needsRestore,
+    restoreAvailable: needsRestore,
+  };
+}
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: true,
   error: null,
+  needsRestore: false,
+  restoreAvailable: false,
+  deletionNotice: false,
+  passwordRecovery: false,
 
   clearError: () => set({ error: null }),
+  clearDeletionNotice: () => set({ deletionNotice: false }),
 
   initializeAuth: async () => {
+    set({ isLoading: true });
     try {
-      set({ isLoading: true });
-      const cached = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-      if (cached) {
-        set({ user: JSON.parse(cached), isLoading: false });
+      if (isSupabaseConfigured) {
+        const { data, error } = await withRetry(() => supabase.auth.getSession());
+        if (!error && data.session?.user) {
+          const result = await buildCloudProfile(data.session.user);
+          resetInMemoryStores();
+          await saveCachedProfile(result.profile);
+          set({
+            user: result.profile,
+            needsRestore: result.needsRestore,
+            restoreAvailable: result.restoreAvailable,
+            passwordRecovery: false,
+            isLoading: false,
+          });
+          return;
+        }
+      }
+
+      // Only guest profiles may be restored without a verified cloud session.
+      const cached = await loadCachedProfile();
+      if (cached?.isGuest) {
+        setActiveLocalUserId(cached.id);
+        resetInMemoryStores();
+        set({ user: cached, needsRestore: false, restoreAvailable: false, isLoading: false });
         return;
       }
 
-      if (isSupabaseConfigured) {
-        const { data } = await supabase.auth.getSession();
-        if (data?.session?.user) {
-          const userProfile: UserProfile = {
-            id: data.session.user.id,
-            email: data.session.user.email || 'user@example.com',
-            isGuest: false,
-            isOnboarded: false,
-          };
-          // Check onboarding status
-          const { data: onboarding } = await supabase
-            .from('onboarding_responses')
-            .select('id')
-            .eq('user_id', userProfile.id)
-            .maybeSingle();
-
-          if (onboarding) {
-            userProfile.isOnboarded = true;
-          }
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(userProfile));
-          set({ user: userProfile });
-        }
-      }
+      await cancelReminderNotifications();
+      setActiveLocalUserId(null);
+      resetInMemoryStores();
+      set({ user: null, needsRestore: false, restoreAvailable: false, isLoading: false });
     } catch {
-      // Offline fallback
-    } finally {
-      set({ isLoading: false });
+      const cached = await loadCachedProfile().catch(() => null);
+      if (cached?.isGuest) {
+        setActiveLocalUserId(cached.id);
+        resetInMemoryStores();
+        set({ user: cached, needsRestore: false, restoreAvailable: false, isLoading: false });
+      } else {
+        await cancelReminderNotifications();
+        setActiveLocalUserId(null);
+        resetInMemoryStores();
+        set({ user: null, isLoading: false });
+      }
     }
   },
 
   login: async (email, password) => {
+    if (!isSupabaseConfigured) {
+      const error =
+        'Cloud sign-in is not configured in this build. Continue as a guest, or configure Supabase credentials.';
+      set({ error, isLoading: false });
+      return { success: false, error };
+    }
+
     try {
       set({ isLoading: true, error: null });
-      if (isSupabaseConfigured) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          set({ error: error.message, isLoading: false });
-          return { success: false, error: error.message };
-        }
-        if (data.user) {
-          const profile: UserProfile = {
-            id: data.user.id,
-            email: data.user.email || email,
-            isGuest: false,
-            isOnboarded: false,
-          };
-          const { data: onboarding } = await supabase
-            .from('onboarding_responses')
-            .select('id')
-            .eq('user_id', profile.id)
-            .maybeSingle();
-
-          if (onboarding) {
-            profile.isOnboarded = true;
-          }
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
-          set({ user: profile, isLoading: false });
-          return { success: true };
-        }
+      const { data, error } = await withRetry(() =>
+        supabase.auth.signInWithPassword({ email, password })
+      );
+      if (error) {
+        const message = describeAuthError(error, error.message);
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+      if (!data.session || !data.user) {
+        const message = 'Please confirm your email address before signing in.';
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
       }
 
-      // Offline / Demo Mode
-      const offlineProfile: UserProfile = {
-        id: 'local-user-' + Date.now(),
-        email,
-        isGuest: false,
-        isOnboarded: false,
-      };
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(offlineProfile));
-      set({ user: offlineProfile, isLoading: false });
+      const result = await buildCloudProfile(data.user);
+      await cancelReminderNotifications();
+      resetInMemoryStores();
+      await saveCachedProfile(result.profile);
+      set({
+        user: result.profile,
+        needsRestore: result.needsRestore,
+        restoreAvailable: result.restoreAvailable,
+        passwordRecovery: false,
+        isLoading: false,
+      });
       return { success: true };
-    } catch (e: any) {
-      const msg = e.message || 'Login failed';
+    } catch (e) {
+      const msg = describeAuthError(e, 'Login failed');
       set({ error: msg, isLoading: false });
       return { success: false, error: msg };
     }
   },
 
   signup: async (email, password) => {
+    if (!isSupabaseConfigured) {
+      const error =
+        'Cloud account creation is not configured in this build. Continue as a guest, or configure Supabase credentials.';
+      set({ error, isLoading: false });
+      return { success: false, error };
+    }
+
     try {
       set({ isLoading: true, error: null });
-      if (isSupabaseConfigured) {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) {
-          set({ error: error.message, isLoading: false });
-          return { success: false, error: error.message };
-        }
-        if (data.user) {
-          const profile: UserProfile = {
-            id: data.user.id,
-            email: data.user.email || email,
-            isGuest: false,
-            isOnboarded: false,
-          };
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(profile));
-          set({ user: profile, isLoading: false });
-          return { success: true };
-        }
+      const { data, error } = await withRetry(() =>
+        supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: authRedirectUrl() },
+        })
+      );
+      if (error) {
+        const message = describeAuthError(error, error.message);
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+      if (!data.session || !data.user) {
+        const message =
+          'Account created. Check your email to confirm your address, then sign in.';
+        set({ error: null, isLoading: false });
+        return { success: true, message };
       }
 
-      // Offline / Demo Mode
-      const offlineProfile: UserProfile = {
-        id: 'local-user-' + Date.now(),
-        email,
+      const profile: UserProfile = {
+        id: data.user.id,
+        email: data.user.email || email,
         isGuest: false,
         isOnboarded: false,
       };
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(offlineProfile));
-      set({ user: offlineProfile, isLoading: false });
+      await cancelReminderNotifications();
+      setActiveLocalUserId(profile.id);
+      resetInMemoryStores();
+      await saveCachedProfile(profile);
+      set({
+        user: profile,
+        needsRestore: false,
+        restoreAvailable: false,
+        passwordRecovery: false,
+        isLoading: false,
+      });
       return { success: true };
-    } catch (e: any) {
-      const msg = e.message || 'Signup failed';
+    } catch (e) {
+      const msg = describeAuthError(e, 'Signup failed');
       set({ error: msg, isLoading: false });
       return { success: false, error: msg };
     }
   },
 
+  requestPasswordReset: async (email) => {
+    if (!isSupabaseConfigured) {
+      return {
+        success: false,
+        error: 'Cloud password reset is not configured in this build.',
+      };
+    }
+    if (!email.trim()) {
+      return { success: false, error: 'Enter the email address for your account.' };
+    }
+
+    try {
+      set({ isLoading: true, error: null });
+      const { error } = await withRetry(() =>
+        supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: passwordRecoveryRedirectUrl(),
+        })
+      );
+      if (error) {
+        const message = describeAuthError(error, error.message);
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+      set({ isLoading: false });
+      return {
+        success: true,
+        message:
+          'If an account exists for that address, a password reset link has been sent. Open the link on this device to choose a new password.',
+      };
+    } catch (e) {
+      const message = describeAuthError(e, 'Password reset could not be started.');
+      set({ error: message, isLoading: false });
+      return { success: false, error: message };
+    }
+  },
+
+  updatePassword: async (password) => {
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'Cloud password reset is not configured in this build.' };
+    }
+    if (password.length < 6) {
+      return { success: false, error: 'Password should be at least 6 characters.' };
+    }
+
+    try {
+      set({ isLoading: true, error: null });
+      const { data, error } = await withRetry(() => supabase.auth.updateUser({ password }));
+      if (error) {
+        const message = describeAuthError(error, error.message);
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+      if (!data.user) {
+        const message = 'The reset session has expired. Request a new reset link.';
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+
+      const result = await buildCloudProfile(data.user);
+      await cancelReminderNotifications();
+      resetInMemoryStores();
+      await saveCachedProfile(result.profile);
+      set({
+        user: result.profile,
+        needsRestore: result.needsRestore,
+        restoreAvailable: result.restoreAvailable,
+        passwordRecovery: false,
+        isLoading: false,
+        error: null,
+      });
+      return { success: true };
+    } catch (e) {
+      const message = describeAuthError(e, 'Password could not be updated.');
+      set({ error: message, isLoading: false });
+      return { success: false, error: message };
+    }
+  },
+
+  handleAuthDeepLink: async (url) => {
+    const looksLikeAuthLink =
+      /auth\/(?:confirm|reset)/i.test(url) ||
+      Boolean(readLinkParam(url, 'code')) ||
+      Boolean(readLinkParam(url, 'access_token'));
+    if (!looksLikeAuthLink) return { handled: false };
+    if (!isSupabaseConfigured) {
+      return { handled: true, error: 'Cloud authentication is not configured in this build.' };
+    }
+
+    const recovery = isPasswordRecoveryLink(url);
+    const linkError = readLinkParam(url, 'error_description') || readLinkParam(url, 'error');
+    if (linkError) {
+      set({ error: linkError, isLoading: false });
+      return { handled: true, error: linkError };
+    }
+
+    try {
+      set({ isLoading: true, error: null });
+      const code = readLinkParam(url, 'code');
+      const accessToken = readLinkParam(url, 'access_token');
+      const refreshToken = readLinkParam(url, 'refresh_token');
+
+      let sessionUser: { id: string; email?: string } | null = null;
+
+      if (code) {
+        const { data, error } = await withRetry(() => supabase.auth.exchangeCodeForSession(code));
+        if (error) {
+          const message = describeAuthError(error, error.message);
+          set({ error: message, isLoading: false });
+          return { handled: true, error: message };
+        }
+        sessionUser = data.session?.user
+          ? { id: data.session.user.id, email: data.session.user.email }
+          : null;
+      } else if (accessToken && refreshToken) {
+        const { data, error } = await withRetry(() =>
+          supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          })
+        );
+        if (error) {
+          const message = describeAuthError(error, error.message);
+          set({ error: message, isLoading: false });
+          return { handled: true, error: message };
+        }
+        sessionUser = data.session?.user
+          ? { id: data.session.user.id, email: data.session.user.email }
+          : null;
+      }
+
+      if (!sessionUser) {
+        const message =
+          'The sign-in link could not be verified. Request a new link and try again on this device.';
+        set({ error: message, isLoading: false });
+        return { handled: true, error: message };
+      }
+
+      const result = await buildCloudProfile(sessionUser);
+      await cancelReminderNotifications();
+      resetInMemoryStores();
+      await saveCachedProfile(result.profile);
+      set({
+        user: result.profile,
+        needsRestore: result.needsRestore,
+        restoreAvailable: result.restoreAvailable,
+        passwordRecovery: recovery,
+        isLoading: false,
+        error: null,
+      });
+      return { handled: true };
+    } catch (e) {
+      const message = describeAuthError(e, 'The sign-in link could not be processed.');
+      set({ error: message, isLoading: false });
+      return { handled: true, error: message };
+    }
+  },
+
   continueAsGuest: async () => {
+    const guestId = await getOrCreateGuestId();
     const guestProfile: UserProfile = {
-      id: 'guest-' + Date.now(),
+      id: guestId,
       email: 'guest@otwo.local',
       isGuest: true,
       isOnboarded: false,
     };
-    await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(guestProfile));
-    set({ user: guestProfile });
+    setActiveLocalUserId(guestId);
+    resetInMemoryStores();
+    await cancelReminderNotifications();
+    await saveCachedProfile(guestProfile);
+    set({
+      user: guestProfile,
+      needsRestore: false,
+      restoreAvailable: false,
+      passwordRecovery: false,
+      error: null,
+    });
   },
 
-  completeOnboarding: async (data: OnboardingData) => {
+  completeOnboarding: async (data) => {
     const currentUser = get().user;
     if (!currentUser) return { success: false, error: 'No user session' };
 
     try {
       set({ isLoading: true });
 
-      // 1. Build template items derived from user onboarding answers and goals
-      const templates: PlanTemplateRow[] = [];
-
-      // Medication reminders from onboarding (reminder-only)
-      data.medicationReminders.forEach((med, idx) => {
-        templates.push({
-          id: `template-med-${idx}-${Date.now()}`,
-          category: 'medication_reminder',
-          title: med.label,
-          description: `Reminder scheduled for ${med.time} (${med.frequency})`,
-          default_time: med.time,
-          is_active: 1,
-          source: 'onboarding',
-        });
-      });
-
-      // Movement focus based on baseline
-      templates.push({
-        id: `template-movement-${Date.now()}`,
-        category: 'movement',
-        title: data.baselineHabits.movementLevel === 'light' ? 'Gentle 15-Minute Walk' : '20-30 Minute Mindful Movement',
-        description: 'Paced movement as permitted by your doctor-prescribed routine.',
-        default_time: '10:00',
-        is_active: 1,
-        source: 'onboarding',
-      });
-
-      // Hydration focus
-      templates.push({
-        id: `template-hydration-${Date.now()}`,
-        category: 'hydration',
-        title: `Hydration (${data.baselineHabits.hydrationGoalGlasses || 8} Glasses)`,
-        description: 'Keep water nearby to support clear airways and general vitality.',
-        default_time: '12:00',
-        is_active: 1,
-        source: 'onboarding',
-      });
-
-      // Nutrition & Wind-down
-      templates.push({
-        id: `template-nutrition-${Date.now()}`,
-        category: 'nutrition',
-        title: 'Airway-Friendly Nutrition Focus',
-        description: 'Fresh fruits and anti-inflammatory whole foods.',
-        default_time: '13:00',
-        is_active: 1,
-        source: 'onboarding',
-      });
-
-      templates.push({
-        id: `template-winddown-${Date.now()}`,
-        category: 'wind_down',
-        title: 'Calm Breathing & Wind-Down',
-        description: 'Relaxation routine 30 mins before sleep to ease airway tension.',
-        default_time: '21:30',
-        is_active: 1,
-        source: 'onboarding',
-      });
-
-      // 2. Persist templates to local SQLite plan_templates table
+      const templates = buildOnboardingTemplates(data);
       await templateRepo.insertMany(templates);
 
-      // 3. Persist medication reminders to local repo
       if (data.medicationReminders.length > 0) {
         await habitRepo.insertMedicationReminders(
           data.medicationReminders.map((m) => ({
@@ -283,52 +554,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         );
       }
 
-      // 4. Seed initial habits
-      await habitRepo.insertHabits([
-        {
-          id: 'habit-consistency',
-          name: 'Morning Routine Consistency',
-          category: 'routine',
-          target_frequency: 'daily',
-          current_streak: 1,
-          best_streak: 1,
-          last_completed_date: new Date().toISOString().split('T')[0],
-        },
-        {
-          id: 'habit-hydration',
-          name: 'Daily Hydration Target',
-          category: 'hydration',
-          target_frequency: 'daily',
-          current_streak: 1,
-          best_streak: 1,
-          last_completed_date: new Date().toISOString().split('T')[0],
-        },
-      ]);
+      const todayDate = getLocalDateString();
+      await habitRepo.insertHabits(buildStarterHabits(todayDate));
+      await planRepo.insertPlans(buildInitialDailyPlans(templates, todayDate));
 
-      // 5. Generate Today's initial daily plan from templates
-      const todayDate = new Date().toISOString().split('T')[0];
-      await planRepo.insertPlans(
-        templates.map((t) => ({
-          id: `plan-${todayDate}-${t.id}`,
-          date: todayDate,
-          category: t.category,
-          title: t.title,
-          description: t.description,
-          is_completed: 0,
-          is_recovery_item: 0,
-        }))
-      );
-
-      // 6. Encrypt sensitive doctor recommendations client-side if present
-      let encryptedRecommendations = '';
+      // Doctor advice is sensitive and stays on this device only.
       if (data.doctorRecommendationsText) {
-        encryptedRecommendations = await encryptSensitiveText(
-          data.doctorRecommendationsText,
-          currentUser.id
-        );
+        await notesRepo.saveDoctorRecommendations(data.doctorRecommendationsText);
       }
 
-      // 7. Sync onboarding record to Supabase if configured and online
+      // Cloud sync is limited to non-sensitive inputs used for restore.
       if (isSupabaseConfigured && !currentUser.isGuest) {
         try {
           await supabase.from('profiles').upsert({
@@ -340,34 +575,129 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
           await supabase.from('onboarding_responses').upsert({
             user_id: currentUser.id,
-            doctor_recommendations_encrypted: encryptedRecommendations,
             medication_reminders_setup: data.medicationReminders,
             baseline_habits: data.baselineHabits,
             personal_goals: data.personalGoals,
           });
-
-          await supabase.from('audit_logs').insert({
-            user_id: currentUser.id,
-            action: 'ONBOARDING_COMPLETED',
-          });
         } catch {
-          // Handled gracefully offline
+          // Local onboarding still succeeds offline.
         }
       }
 
-      // Update state
       const updatedProfile: UserProfile = {
         ...currentUser,
         age: data.age,
         isOnboarded: true,
       };
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updatedProfile));
-      set({ user: updatedProfile, isLoading: false });
+      await saveCachedProfile(updatedProfile);
+      set({
+        user: updatedProfile,
+        needsRestore: false,
+        restoreAvailable: false,
+        isLoading: false,
+      });
       return { success: true };
-    } catch (err: any) {
-      set({ isLoading: false });
-      return { success: false, error: err.message || 'Onboarding save failed' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Onboarding save failed';
+      set({ isLoading: false, error: message });
+      return { success: false, error: message };
     }
+  },
+
+  restoreSavedPlan: async () => {
+    const currentUser = get().user;
+    if (!currentUser || currentUser.isGuest) {
+      return { success: false, error: 'Sign in with a cloud account to restore a saved plan.' };
+    }
+    if (!isSupabaseConfigured) {
+      return { success: false, error: 'Cloud restore is not configured in this build.' };
+    }
+
+    try {
+      set({ isLoading: true, error: null });
+      const { data: onboarding, error } = await supabase
+        .from('onboarding_responses')
+        .select('baseline_habits, personal_goals, medication_reminders_setup')
+        .eq('user_id', currentUser.id)
+        .maybeSingle();
+
+      if (error) {
+        const message =
+          'Could not reach the cloud to restore this plan. Check your connection and try again.';
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+      if (!onboarding) {
+        const message = 'No saved plan was found for this account.';
+        set({ error: message, isLoading: false });
+        return { success: false, error: message };
+      }
+
+      const baseline = onboarding.baseline_habits || {};
+      const meds = Array.isArray(onboarding.medication_reminders_setup)
+        ? onboarding.medication_reminders_setup
+        : [];
+      const goals = Array.isArray(onboarding.personal_goals)
+        ? onboarding.personal_goals
+        : [];
+
+      const templates = buildOnboardingTemplates({
+        age: currentUser.age || 0,
+        medicationReminders: meds,
+        baselineHabits: {
+          sleepHours: Number(baseline.sleepHours) || 7,
+          movementLevel:
+            baseline.movementLevel === 'moderate' || baseline.movementLevel === 'active'
+              ? baseline.movementLevel
+              : 'light',
+          hydrationGoalGlasses: Number(baseline.hydrationGoalGlasses) || 8,
+          stressLevel:
+            baseline.stressLevel === 'low' || baseline.stressLevel === 'high'
+              ? baseline.stressLevel
+              : 'moderate',
+        },
+        personalGoals: goals,
+      });
+
+      await templateRepo.insertMany(templates);
+      if (meds.length > 0) {
+        await habitRepo.insertMedicationReminders(
+          meds.map((m: MedicationSetupItem, index: number) => ({
+            id: m.id || `restored-med-${index}-${Date.now()}`,
+            label: m.label || `Medication reminder ${index + 1}`,
+            time: m.time || '08:00',
+            frequency: m.frequency || 'daily',
+            is_active: 1,
+          }))
+        );
+      }
+      const today = getLocalDateString();
+      await habitRepo.insertHabits(buildStarterHabits(today));
+      await planRepo.insertPlans(buildInitialDailyPlans(templates, today));
+
+      const updatedProfile: UserProfile = { ...currentUser, isOnboarded: true };
+      await saveCachedProfile(updatedProfile);
+      set({
+        user: updatedProfile,
+        needsRestore: false,
+        restoreAvailable: false,
+        isLoading: false,
+      });
+      return { success: true };
+    } catch {
+      const message =
+        'Could not restore the saved plan. Check your connection and try again.';
+      set({ error: message, isLoading: false });
+      return { success: false, error: message };
+    }
+  },
+
+  startFreshOnboarding: async () => {
+    const currentUser = get().user;
+    if (!currentUser) return;
+    const updatedProfile: UserProfile = { ...currentUser, isOnboarded: false };
+    await saveCachedProfile(updatedProfile);
+    set({ user: updatedProfile, needsRestore: false, restoreAvailable: false });
   },
 
   logout: async () => {
@@ -375,27 +705,80 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         await supabase.auth.signOut();
       } catch {
-        // Ignore
+        // Local logout still proceeds.
       }
     }
-    await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-    set({ user: null });
+    await cancelReminderNotifications();
+    setActiveLocalUserId(null);
+    resetInMemoryStores();
+    await deleteCachedProfile();
+    set({
+      user: null,
+      needsRestore: false,
+      restoreAvailable: false,
+      passwordRecovery: false,
+      error: null,
+    });
   },
 
   deleteAccount: async () => {
-    const user = get().user;
-    if (user && isSupabaseConfigured && !user.isGuest) {
+    const currentUser = get().user;
+    if (!currentUser) {
+      return { success: false, error: 'No active account to delete.' };
+    }
+
+    // Remote deletion must be verified before local data is destroyed.
+    if (isSupabaseConfigured && !currentUser.isGuest) {
       try {
-        await supabase.from('audit_logs').insert({
-          user_id: user.id,
-          action: 'ACCOUNT_DELETION',
+        const { data, error } = await supabase.functions.invoke('delete-account', {
+          body: { confirm: true },
         });
-        await supabase.from('profiles').delete().eq('id', user.id);
+        if (error) {
+          return {
+            success: false,
+            error:
+              error.message ||
+              'The server could not delete your account. Nothing was removed locally. Please try again.',
+          };
+        }
+        if (data && data.success === false) {
+          return {
+            success: false,
+            error: data.error || 'The server refused to delete your account.',
+          };
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Account deletion failed.';
+        return {
+          success: false,
+          error: `${message} Nothing was removed locally. Please try again.`,
+        };
+      }
+
+      try {
+        await supabase.auth.signOut({ scope: 'global' });
       } catch {
-        // Ignore
+        // The auth user is already gone; local cleanup continues.
       }
     }
-    await AsyncStorage.clear();
-    set({ user: null });
+
+    try {
+      await cancelReminderNotifications();
+      await wipeAllLocalData();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Local data could not be fully cleared.';
+      return { success: false, error: message };
+    }
+
+    resetInMemoryStores();
+    set({
+      user: null,
+      needsRestore: false,
+      restoreAvailable: false,
+      deletionNotice: true,
+      passwordRecovery: false,
+      error: null,
+    });
+    return { success: true };
   },
 }));

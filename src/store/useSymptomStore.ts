@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { symptomRepo } from '../db/repositories/symptomRepo';
 import { SymptomLogRow } from '../db/sqlite';
+import { getLocalDateString } from '../utils/date';
 
 interface SymptomState {
   logs: SymptomLogRow[];
@@ -13,12 +14,13 @@ interface SymptomState {
   emergencyAlert: boolean;
   loadSymptoms: () => Promise<void>;
   logSymptom: (
-    breathingDifficulty: number, // 1 to 5
-    coughPresence: number,       // 0 = none, 1 = mild, 2 = persistent
+    breathingDifficulty: number,
+    coughPresence: number,
     triggers: string[],
     notes?: string
   ) => Promise<{ isCritical: boolean }>;
   dismissEmergencyAlert: () => void;
+  reset: () => void;
 }
 
 export const useSymptomStore = create<SymptomState>((set, get) => ({
@@ -39,7 +41,7 @@ export const useSymptomStore = create<SymptomState>((set, get) => ({
   },
 
   logSymptom: async (breathingDifficulty, coughPresence, triggers, notes) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const logItem: SymptomLogRow = {
       id: `symptom-${Date.now()}`,
       date: today,
@@ -53,7 +55,6 @@ export const useSymptomStore = create<SymptomState>((set, get) => ({
     await symptomRepo.insertLog(logItem);
     await get().loadSymptoms();
 
-    // Critical escalation check: Difficulty 5 or severe distress
     const isCritical = breathingDifficulty >= 5;
     if (isCritical) {
       set({ emergencyAlert: true });
@@ -64,4 +65,12 @@ export const useSymptomStore = create<SymptomState>((set, get) => ({
   dismissEmergencyAlert: () => {
     set({ emergencyAlert: false });
   },
+
+  reset: () =>
+    set({
+      logs: [],
+      topTriggers: [],
+      isLoading: false,
+      emergencyAlert: false,
+    }),
 }));

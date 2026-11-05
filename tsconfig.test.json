@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2022", "DOM"],
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "types": ["node"]
+  },
+  "include": [
+    "tests/**/*.ts",
+    "src/utils/date.ts",
+    "src/utils/emergencyNumbers.ts",
+    "src/utils/localScope.ts",
+    "src/utils/secureStorageKeys.ts",
+    "src/services/ai/guardrails.ts",
+    "src/services/ai/onDeviceEngine.ts",
+    "src/services/environmentApi.ts",
+    "src/services/localWipe.ts",
+    "src/services/recovery.ts",
+    "src/services/streaks.ts",
+    "src/services/reportMath.ts",
+    "src/services/onboardingPlan.ts"
+  ]
+}

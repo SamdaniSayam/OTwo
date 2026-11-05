@@ -53,6 +53,8 @@ export const Input: React.FC<InputProps> = ({
           onBlur={() => setIsFocused(false)}
           secureTextEntry={isPassword ? !showPassword : secureTextEntry}
           style={styles.textInput}
+          accessibilityLabel={rest.accessibilityLabel ?? label}
+          accessibilityHint={rest.accessibilityHint ?? error ?? helperText}
           {...rest}
         />
         {isPassword && (
@@ -61,6 +63,9 @@ export const Input: React.FC<InputProps> = ({
             onPress={() => setShowPassword((prev) => !prev)}
             accessibilityRole="button"
             accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            accessibilityState={{ selected: showPassword }}
+            aria-pressed={showPassword}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.toggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
           </TouchableOpacity>
@@ -70,7 +75,9 @@ export const Input: React.FC<InputProps> = ({
         )}
       </View>
       {error ? (
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.errorText} accessibilityLiveRegion="polite" accessibilityRole="alert">
+          {error}
+        </Text>
       ) : helperText ? (
         <Text style={styles.helperText}>{helperText}</Text>
       ) : null}
@@ -107,12 +114,14 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    height: '100%',
+    minHeight: Layout.touchTarget.minHeight - 4,
     fontSize: Layout.fontSize.body,
     color: Colors.textPrimary,
     paddingVertical: Layout.spacing.sm,
   },
   iconContainer: {
+    minWidth: 44,
+    minHeight: 44,
     paddingHorizontal: Layout.spacing.xs,
     justifyContent: 'center',
     alignItems: 'center',

@@ -81,7 +81,10 @@ export const Button: React.FC<ButtonProps> = ({
         style,
       ]}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading }}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      aria-disabled={disabled || loading}
+      aria-busy={loading}
+      accessibilityLabel={title}
     >
       {loading ? (
         <ActivityIndicator
@@ -117,10 +120,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Layout.spacing.base,
   },
   medium: {
-    height: 48,
+    minHeight: 48,
+    paddingVertical: Layout.spacing.sm,
   },
   large: {
-    height: 54,
+    minHeight: 54,
+    paddingVertical: Layout.spacing.md,
     paddingHorizontal: Layout.spacing.xl,
   },
   primaryContainer: {

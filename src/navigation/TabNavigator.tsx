@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, Platform, StyleSheet } from 'react-native';
 import { Colors } from '../constants/colors';
 import { Layout } from '../constants/layout';
+import { useHabitStore } from '../store/useHabitStore';
 import { TodayScreen } from '../screens/today/TodayScreen';
 import { HabitsScreen } from '../screens/habits/HabitsScreen';
 import { SymptomLogScreen } from '../screens/symptoms/SymptomLogScreen';
@@ -12,6 +13,14 @@ import { SettingsScreen } from '../screens/settings/SettingsScreen';
 const Tab = createBottomTabNavigator();
 
 export const TabNavigator = () => {
+  const loadHabits = useHabitStore((state) => state.loadHabits);
+
+  useEffect(() => {
+    // Load once when the signed-in app shell mounts so notification schedules
+    // follow the active account, even if the Habits tab is not opened.
+    loadHabits();
+  }, [loadHabits]);
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -27,7 +36,9 @@ export const TabNavigator = () => {
         name="Today"
         component={TodayScreen}
         options={{
+          title: 'Today – OTwo',
           tabBarLabel: 'Today',
+          tabBarAccessibilityLabel: 'Today',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20 }}>🌿</Text>,
         }}
       />
@@ -35,7 +46,9 @@ export const TabNavigator = () => {
         name="Habits"
         component={HabitsScreen}
         options={{
+          title: 'Habits – OTwo',
           tabBarLabel: 'Habits',
+          tabBarAccessibilityLabel: 'Habits and reminders',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20 }}>🔥</Text>,
         }}
       />
@@ -43,7 +56,9 @@ export const TabNavigator = () => {
         name="Symptoms"
         component={SymptomLogScreen}
         options={{
+          title: 'Check-in – OTwo',
           tabBarLabel: 'Check-in',
+          tabBarAccessibilityLabel: 'Symptom check-in',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20 }}>📋</Text>,
         }}
       />
@@ -51,7 +66,9 @@ export const TabNavigator = () => {
         name="Companion"
         component={CompanionScreen}
         options={{
+          title: 'Mentor – OTwo',
           tabBarLabel: 'Mentor',
+          tabBarAccessibilityLabel: 'Companion',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20 }}>💬</Text>,
         }}
       />
@@ -59,7 +76,9 @@ export const TabNavigator = () => {
         name="Settings"
         component={SettingsScreen}
         options={{
+          title: 'Settings – OTwo',
           tabBarLabel: 'Settings',
+          tabBarAccessibilityLabel: 'Settings and privacy',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 20 }}>⚙️</Text>,
         }}
       />
@@ -72,7 +91,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    height: Platform.OS === 'ios' ? 88 : 64,
+    minHeight: Platform.OS === 'ios' ? 88 : 64,
     paddingBottom: Platform.OS === 'ios' ? 24 : 8,
     paddingTop: 8,
     ...Layout.shadow.subtle,

@@ -1,0 +1,26 @@
+{
+  "metaCsp": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://air-quality-api.open-meteo.com; manifest-src 'self'; worker-src 'self' blob:; media-src 'self'",
+  "headerCsp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://air-quality-api.open-meteo.com; manifest-src 'self'; worker-src 'self' blob:; media-src 'self'; upgrade-insecure-requests",
+  "headers": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(self), camera=(), microphone=(), payment=(), usb=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+  },
+  "cacheHeaders": [
+    {
+      "path": "/sw.js",
+      "Cache-Control": "no-cache"
+    },
+    {
+      "path": "/manifest.json",
+      "Cache-Control": "no-cache"
+    },
+    {
+      "path": "/_expo/static/*",
+      "Cache-Control": "public, max-age=31536000, immutable"
+    }
+  ]
+}

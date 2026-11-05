@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,13 +15,29 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { DisclaimerBanner } from '../../components/common/DisclaimerBanner';
 import { useAuthStore } from '../../store/useAuthStore';
+import { isSupabaseConfigured } from '../../db/supabase';
 import { APP_NAME, APP_SUBTITLE } from '../../constants/app';
 
 export const LoginScreen = ({ navigation }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const { login, continueAsGuest, isLoading } = useAuthStore();
+  const [noticeMsg, setNoticeMsg] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const {
+    login,
+    requestPasswordReset,
+    continueAsGuest,
+    isLoading,
+    deletionNotice,
+    clearDeletionNotice,
+  } = useAuthStore();
+
+  useEffect(() => {
+    if (!deletionNotice) return;
+    const timer = setTimeout(() => clearDeletionNotice(), 8000);
+    return () => clearTimeout(timer);
+  }, [deletionNotice, clearDeletionNotice]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -29,10 +45,31 @@ export const LoginScreen = ({ navigation }: any) => {
       return;
     }
     setErrorMsg('');
+    setNoticeMsg('');
     const res = await login(email.trim(), password);
     if (!res.success && res.error) {
       setErrorMsg(res.error);
     }
+  };
+
+  const handlePasswordReset = async () => {
+    setErrorMsg('');
+    setNoticeMsg('');
+    if (!email.trim()) {
+      setErrorMsg('Enter your email address above, then request a reset link.');
+      return;
+    }
+    setIsResetting(true);
+    const res = await requestPasswordReset(email.trim());
+    setIsResetting(false);
+    if (!res.success) {
+      setErrorMsg(res.error || 'Password reset could not be started.');
+      return;
+    }
+    setNoticeMsg(
+      res.message ||
+        'If an account exists for that address, a password reset link has been sent.'
+    );
   };
 
   return (
@@ -47,25 +84,67 @@ export const LoginScreen = ({ navigation }: any) => {
         >
           <View style={styles.header}>
             <View style={styles.logoBadge}>
-              <Text style={styles.logoText}>🌿</Text>
+              <Text style={styles.logoText} accessibilityElementsHidden importantForAccessibility="no">
+                🌿
+              </Text>
             </View>
-            <Text style={styles.appName}>{APP_NAME}</Text>
+            <Text style={styles.appName} accessibilityRole="header">
+              {APP_NAME}
+            </Text>
             <Text style={styles.subtitle}>{APP_SUBTITLE}</Text>
           </View>
 
           <DisclaimerBanner style={styles.disclaimer} />
 
           <View style={styles.formCard}>
-            <Text style={styles.cardTitle}>Welcome Back</Text>
+            <Text style={styles.cardTitle} accessibilityRole="header">
+              Welcome Back
+            </Text>
             <Text style={styles.cardSubtitle}>Sign in to access your daily routines</Text>
 
-            {errorMsg ? <Text style={styles.errorBanner}>{errorMsg}</Text> : null}
+            {deletionNotice ? (
+              <Text
+                style={styles.successBanner}
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+              >
+                Your account and all local data have been deleted.
+              </Text>
+            ) : null}
+
+            {!isSupabaseConfigured ? (
+              <Text style={styles.infoBanner}>
+                Cloud sign-in is not configured in this build. Guest mode stores everything on this
+                device only.
+              </Text>
+            ) : null}
+
+            {errorMsg ? (
+              <Text
+                style={styles.errorBanner}
+                accessibilityLiveRegion="assertive"
+                accessibilityRole="alert"
+              >
+                {errorMsg}
+              </Text>
+            ) : null}
+            {noticeMsg ? (
+              <Text
+                style={styles.successBanner}
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+              >
+                {noticeMsg}
+              </Text>
+            ) : null}
 
             <Input
               label="Email Address"
               placeholder="you@example.com"
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
               value={email}
               onChangeText={setEmail}
             />
@@ -74,9 +153,25 @@ export const LoginScreen = ({ navigation }: any) => {
               label="Password"
               placeholder="••••••••"
               isPassword
+              autoComplete="current-password"
+              textContentType="password"
               value={password}
               onChangeText={setPassword}
             />
+
+            {isSupabaseConfigured ? (
+              <TouchableOpacity
+                onPress={handlePasswordReset}
+                disabled={isResetting || isLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Send a password reset link"
+                style={styles.forgotButton}
+              >
+                <Text style={styles.forgotText}>
+                  {isResetting ? 'Sending reset link…' : 'Forgot password?'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             <Button
               title="Sign In"
@@ -93,7 +188,7 @@ export const LoginScreen = ({ navigation }: any) => {
             </View>
 
             <Button
-              title="Continue as Guest (Offline)"
+              title="Continue as Guest (Local-only)"
               variant="outline"
               size="md"
               onPress={continueAsGuest}
@@ -101,7 +196,7 @@ export const LoginScreen = ({ navigation }: any) => {
             />
 
             <View style={styles.footerRow}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
+              <Text style={styles.footerText}>{"Don't have an account? "}</Text>
               <TouchableOpacity
                 onPress={() => navigation.navigate('Signup')}
                 accessibilityRole="button"
@@ -187,8 +282,37 @@ const styles = StyleSheet.create({
     fontSize: Layout.fontSize.bodySm,
     marginBottom: Layout.spacing.md,
   },
+  successBanner: {
+    backgroundColor: Colors.successLight,
+    color: Colors.primaryDark,
+    padding: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.sm,
+    fontSize: Layout.fontSize.bodySm,
+    fontWeight: Layout.fontWeight.semiBold,
+    marginBottom: Layout.spacing.md,
+  },
+  infoBanner: {
+    backgroundColor: Colors.surfaceSubtle,
+    color: Colors.textSecondary,
+    padding: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.sm,
+    fontSize: Layout.fontSize.caption,
+    lineHeight: Layout.lineHeight.caption,
+    marginBottom: Layout.spacing.md,
+  },
   actionButton: {
     marginTop: Layout.spacing.md,
+  },
+  forgotButton: {
+    alignSelf: 'flex-end',
+    minHeight: Layout.touchTarget.minHeight,
+    justifyContent: 'center',
+    paddingHorizontal: Layout.spacing.xs,
+  },
+  forgotText: {
+    fontSize: Layout.fontSize.bodySm,
+    fontWeight: Layout.fontWeight.medium,
+    color: Colors.primary,
   },
   dividerRow: {
     flexDirection: 'row',

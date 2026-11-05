@@ -6,7 +6,6 @@ import {
   SafeAreaView,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { Layout } from '../../constants/layout';
@@ -44,7 +43,7 @@ export const SymptomLogScreen = () => {
 
   useEffect(() => {
     loadSymptoms();
-  }, []);
+  }, [loadSymptoms]);
 
   const toggleTrigger = (trigger: string) => {
     setSelectedTriggers((prev) =>
@@ -74,7 +73,9 @@ export const SymptomLogScreen = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.screenTitle}>Symptom Check-in</Text>
+        <Text style={styles.screenTitle} accessibilityRole="header">
+          Symptom Check-in
+        </Text>
         <Text style={styles.screenSubtitle}>
           Personal observations for your next doctor appointment
         </Text>
@@ -84,16 +85,26 @@ export const SymptomLogScreen = () => {
           style={{ marginVertical: Layout.spacing.sm }}
         />
 
-        {successMsg ? <Text style={styles.successBanner}>{successMsg}</Text> : null}
+        {successMsg ? (
+          <Text
+            style={styles.successBanner}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+          >
+            {successMsg}
+          </Text>
+        ) : null}
 
         {/* Check-in Form Card */}
         <Card style={styles.formCard}>
-          <Text style={styles.sectionTitle}>1. How is your breathing feeling today?</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            1. How is your breathing feeling today?
+          </Text>
           <Text style={styles.helperText}>
             1 = Completely comfortable, 5 = Severe difficulty / struggling
           </Text>
 
-          <View style={styles.ratingRow}>
+          <View style={styles.ratingRow} accessibilityRole="radiogroup">
             {[1, 2, 3, 4, 5].map((num) => {
               const isSelected = difficulty === num;
               return (
@@ -107,6 +118,17 @@ export const SymptomLogScreen = () => {
                     num === 5 && styles.ratingCircleDanger,
                     isSelected && num === 5 && styles.ratingCircleDangerSelected,
                   ]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  aria-checked={isSelected}
+                  accessibilityLabel={`Breathing difficulty ${num} of 5`}
+                  accessibilityHint={
+                    num === 1
+                      ? 'Completely comfortable'
+                      : num === 5
+                        ? 'Severe difficulty or struggling to breathe'
+                        : 'Select this rating'
+                  }
                 >
                   <Text
                     style={[
@@ -126,7 +148,10 @@ export const SymptomLogScreen = () => {
           </View>
 
           {/* Cough Level */}
-          <Text style={[styles.sectionTitle, { marginTop: Layout.spacing.lg }]}>
+          <Text
+            style={[styles.sectionTitle, { marginTop: Layout.spacing.lg }]}
+            accessibilityRole="header"
+          >
             2. Cough Presence
           </Text>
           <View style={styles.chipRow}>
@@ -139,6 +164,10 @@ export const SymptomLogScreen = () => {
                 key={c.val}
                 onPress={() => setCough(c.val)}
                 style={[styles.chip, cough === c.val && styles.chipActive]}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: cough === c.val }}
+                aria-checked={cough === c.val}
+                accessibilityLabel={`Cough: ${c.label}`}
               >
                 <Text style={[styles.chipText, cough === c.val && styles.chipTextActive]}>
                   {c.label}
@@ -148,7 +177,10 @@ export const SymptomLogScreen = () => {
           </View>
 
           {/* Environmental Triggers */}
-          <Text style={[styles.sectionTitle, { marginTop: Layout.spacing.lg }]}>
+          <Text
+            style={[styles.sectionTitle, { marginTop: Layout.spacing.lg }]}
+            accessibilityRole="header"
+          >
             3. Triggers Noticed Today (Optional)
           </Text>
           <View style={styles.triggerWrap}>
@@ -159,6 +191,10 @@ export const SymptomLogScreen = () => {
                   key={t}
                   onPress={() => toggleTrigger(t)}
                   style={[styles.triggerChip, isSelected && styles.triggerChipActive]}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isSelected }}
+                  aria-checked={isSelected}
+                  accessibilityLabel={`Trigger: ${t}`}
                 >
                   <Text
                     style={[
@@ -197,7 +233,9 @@ export const SymptomLogScreen = () => {
         {/* Top Recurring Triggers Card */}
         {topTriggers.length > 0 && (
           <Card style={styles.triggersCard}>
-            <Text style={styles.cardHeader}>Frequently Noticed Triggers</Text>
+            <Text style={styles.cardHeader} accessibilityRole="header">
+              Frequently Noticed Triggers
+            </Text>
             <Text style={styles.cardSub}>Observation only – share with your physician.</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
               {topTriggers.slice(0, 6).map((item) => (
@@ -212,12 +250,29 @@ export const SymptomLogScreen = () => {
         )}
 
         {/* Recent Logs List */}
-        <Text style={[styles.sectionTitle, { marginTop: Layout.spacing.xl, marginBottom: Layout.spacing.xs }]}>
+        <Text
+          style={[
+            styles.sectionTitle,
+            { marginTop: Layout.spacing.xl, marginBottom: Layout.spacing.xs },
+          ]}
+          accessibilityRole="header"
+        >
           Recent Logs ({logs.length})
         </Text>
 
         {logs.slice(0, 5).map((log) => (
-          <Card key={log.id} style={styles.historyCard}>
+          <Card
+            key={log.id}
+            style={styles.historyCard}
+            accessible
+            accessibilityLabel={`Check-in from ${log.date}. Breathing difficulty ${log.breathing_difficulty} of 5.${
+              log.triggers ? ` Triggers: ${log.triggers}.` : ''
+            }${
+              log.notes
+                ? ` Note: ${log.notes}${/[.!?]$/.test(log.notes.trim()) ? '' : '.'}`
+                : ''
+            }`}
+          >
             <View style={styles.historyHeader}>
               <Text style={styles.historyDate}>{log.date}</Text>
               <Badge
@@ -229,7 +284,7 @@ export const SymptomLogScreen = () => {
               <Text style={styles.historyTriggers}>Triggers: {log.triggers}</Text>
             ) : null}
             {log.notes ? (
-              <Text style={styles.historyNotes}>"{log.notes}"</Text>
+              <Text style={styles.historyNotes}>{`"${log.notes}"`}</Text>
             ) : null}
           </Card>
         ))}
@@ -291,13 +346,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   ratingCircle: {
-    width: 52,
-    height: 52,
+    minWidth: 52,
+    minHeight: 52,
     borderRadius: 26,
     borderWidth: 2,
     borderColor: Colors.border,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Layout.spacing.xs,
+    paddingVertical: 4,
     backgroundColor: Colors.surface,
   },
   ratingCircleSelected: {
@@ -335,12 +392,14 @@ const styles = StyleSheet.create({
   },
   chip: {
     flex: 1,
-    height: Layout.touchTarget.minHeight,
+    minHeight: Layout.touchTarget.minHeight,
     borderRadius: Layout.borderRadius.md,
     borderWidth: 1.5,
     borderColor: Colors.border,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Layout.spacing.xs,
+    paddingVertical: Layout.spacing.xs,
     backgroundColor: Colors.surface,
   },
   chipActive: {
@@ -364,6 +423,8 @@ const styles = StyleSheet.create({
     marginTop: Layout.spacing.sm,
   },
   triggerChip: {
+    minHeight: 44,
+    justifyContent: 'center',
     paddingHorizontal: Layout.spacing.md,
     paddingVertical: Layout.spacing.sm,
     borderRadius: Layout.borderRadius.full,
@@ -409,6 +470,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
     marginBottom: 4,
   },
   historyDate: {

@@ -28,7 +28,7 @@ export const TodayScreen = () => {
   useEffect(() => {
     loadTodayPlan();
     loadPreferences();
-  }, []);
+  }, [loadTodayPlan, loadPreferences]);
 
   const completedCount = plans.filter((p) => p.is_completed === 1).length;
   const totalCount = plans.length;
@@ -51,7 +51,9 @@ export const TodayScreen = () => {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.appTitle}>{APP_NAME}</Text>
+            <Text style={styles.appTitle} accessibilityRole="header">
+              {APP_NAME}
+            </Text>
             <Text style={styles.subtitle}>
               {new Date().toLocaleDateString('en-US', {
                 weekday: 'long',
@@ -60,7 +62,11 @@ export const TodayScreen = () => {
               })}
             </Text>
           </View>
-          <View style={styles.progressBadge}>
+          <View
+            style={styles.progressBadge}
+            accessible
+            accessibilityLabel={`${completedCount} of ${totalCount} routine items completed`}
+          >
             <Text style={styles.progressText}>
               {completedCount} / {totalCount} Done
             </Text>
@@ -82,7 +88,17 @@ export const TodayScreen = () => {
 
         {/* Daily Progress Bar */}
         <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
+          <View
+            style={styles.progressBar}
+            accessibilityRole="progressbar"
+            accessibilityLabel="Today's routine adherence"
+            accessibilityValue={{
+              min: 0,
+              max: 100,
+              now: progressPercent,
+              text: `${completedCount} of ${totalCount} items completed`,
+            }}
+          >
             <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
           </View>
           <Text style={styles.progressLabel}>{progressPercent}% Routine Adherence</Text>
@@ -90,8 +106,12 @@ export const TodayScreen = () => {
 
         {/* Checklist Section */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Today's Routine Checklist</Text>
-          <Text style={styles.sectionSubtitle}>Tap item to add note or skip</Text>
+          <Text style={styles.sectionTitle} accessibilityRole="header">
+            {"Today's Routine Checklist"}
+          </Text>
+          <Text style={styles.sectionSubtitle}>
+            Tap an item to add a note or skip it for today
+          </Text>
         </View>
 
         {plans.length === 0 ? (
@@ -137,6 +157,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Layout.spacing.sm,
     marginBottom: Layout.spacing.xs,
   },
   appTitle: {
