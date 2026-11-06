@@ -129,9 +129,11 @@ npx expo-doctor     # Expo dependency/config diagnostics
 ```bash
 npm run build:web
 ```
-This runs `expo export -p web`, injects a strict `Content-Security-Policy` meta tag into `dist/index.html`, writes `dist/_headers` (CSP, HSTS, permissions policy, cache rules), and embeds every exported asset in the service-worker precache list.
+This runs `expo export -p web`, injects a strict `Content-Security-Policy` meta tag into `dist/index.html`, writes `dist/_headers` (CSP, HSTS, permissions policy, cache rules), writes `dist/_redirects` (SPA fallback so deep links do not 404), and embeds every exported asset in the service-worker precache list.
 
-Serve `dist/` over HTTPS on a domain you control. The build requires `script-src 'self'`; the service-worker registration lives in `public/register-sw.js` rather than an inline script. `style-src` still allows inline styles because `react-native-web` injects them at runtime. If your Supabase project uses a custom domain, add it to `connect-src` in `src/constants/webSecurity.json` and rebuild. Hosts that support `_headers` (Netlify, Cloudflare Pages) apply the policy automatically; other hosts need the same headers copied into their config.
+Serve `dist/` over HTTPS on a domain you control. The build requires `script-src 'self'`; the service-worker registration lives in `public/register-sw.js` rather than an inline script. `style-src` still allows inline styles because `react-native-web` injects them at runtime. If your Supabase project uses a custom domain, add it to `connect-src` in `src/constants/webSecurity.json` and rebuild. Hosts that support `_headers` and `_redirects` (Netlify, Cloudflare Pages) apply the policy and SPA fallback automatically; other hosts need the same rules copied into their config.
+
+For a fixed public URL, mobile-store builds, and the post-deploy Supabase redirect settings, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 

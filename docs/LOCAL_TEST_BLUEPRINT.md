@@ -86,7 +86,8 @@ npm run build:web
 ```
 
 This runs `expo export -p web`, injects the CSP meta tag, writes `dist/_headers`,
-and embeds every exported asset in the service-worker precache list.
+writes `dist/_redirects` (SPA fallback), and embeds every exported asset in the
+service-worker precache list.
 
 Verify:
 
@@ -94,9 +95,11 @@ Verify:
 - `dist/sw.js` exists and contains a populated `PRECACHE_MANIFEST`
 - `dist/_headers` exists and includes `script-src 'self'` and
   `frame-ancestors 'none'`
+- `dist/_redirects` exists and contains `/*    /index.html   200`
 - `dist/register-sw.js` exists (no inline SW registration in `index.html`)
 - Serve `dist/` over localhost/HTTPS, open it, and confirm the browser console
   has no CSP violations
+- Open a deep link such as `/settings` directly → the app loads instead of 404
 - Reload offline → the app shell loads
 
 Quick local serve:
@@ -108,8 +111,9 @@ python3 -m http.server 4173 --directory dist
 
 | Step | Expected | Observed | Status |
 |------|----------|----------|--------|
-| `build:web` | `dist/` + CSP + `_headers` + SW | `dist/index.html` with CSP meta; `_headers` with `script-src 'self'` and `frame-ancestors 'none'`; 21 assets precached | Pass |
+| `build:web` | `dist/` + CSP + `_headers` + `_redirects` + SW | `dist/index.html` with CSP meta; `_headers` with `script-src 'self'` and `frame-ancestors 'none'`; `_redirects` with the SPA fallback; 21 assets precached | Pass |
 | First load | app renders, no CSP violations | Login rendered; only the benign `expo-notifications` web warning | Pass |
+| Deep link | `/settings` loads the app | SPA server returned `index.html`; app rendered | Pass |
 | Offline shell | app opens without network | Server stopped; reload rendered Login with no load error | Pass |
 
 ---
@@ -207,7 +211,8 @@ Record device name, OS version, and build profile. Full steps:
 | Tests | `npm test` | all pass | 78/78 pass | Yes | test summary |
 | Typecheck | `tsc --noEmit` | clean | clean exit | Yes | command output |
 | Lint | `npm run lint` | no errors | no errors | Yes | command output |
-| Web build | `npm run build:web` | `dist/` + CSP + `_headers` + SW | 21 assets precached; CSP meta and `_headers` present | Yes | `dist/` inspection |
+| Web build | `npm run build:web` | `dist/` + CSP + `_headers` + `_redirects` + SW | 21 assets precached; CSP meta, `_headers`, and `_redirects` present | Yes | `dist/` inspection |
+| Deep link | `/settings` on SPA server | app loads, not 404 | app rendered (login gate) | Yes | browser |
 | CSP load | serve `dist/` | no console CSP violations | no violations; one benign `expo-notifications` web warning | Yes | browser console |
 | Offline shell | `dist/` over localhost | loads offline | server stopped; Login rendered, no load error | Yes | browser reload |
 | Web smoke | guest/onboarding/logs/companion/wipe | app flows work locally | all executed checks passed | Yes | section 8 table |

@@ -52,3 +52,15 @@ for (const entry of policy.cacheHeaders || []) {
 
 fs.writeFileSync(headersPath, `${headerLines.join('\n')}\n`, 'utf8');
 console.log(`inject-web-csp: wrote ${path.relative(projectRoot, headersPath)}.`);
+
+// Expo Router's `single` web output is a client-side app. Static hosts must
+// serve index.html for unknown paths so deep links such as /settings or
+// /auth/reset work on a fresh load instead of returning a 404.
+if (!policy.spaFallback) {
+  console.error('inject-web-csp: webSecurity.json is missing spaFallback.');
+  process.exit(1);
+}
+
+const redirectsPath = path.join(distDir, '_redirects');
+fs.writeFileSync(redirectsPath, `${policy.spaFallback}\n`, 'utf8');
+console.log(`inject-web-csp: wrote ${path.relative(projectRoot, redirectsPath)}.`);

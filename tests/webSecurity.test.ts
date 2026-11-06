@@ -55,3 +55,8 @@ test('service worker and manifest are not cached as immutable', () => {
   assert.equal(sw?.['Cache-Control'], 'no-cache');
   assert.equal(manifest?.['Cache-Control'], 'no-cache');
 });
+
+test('single-page export ships an SPA fallback for deep links', () => {
+  assert.ok(policy.spaFallback, 'spaFallback must be present');
+  assert.match(policy.spaFallback, /^\/\*\s+\/index\.html\s+200$/);
+});

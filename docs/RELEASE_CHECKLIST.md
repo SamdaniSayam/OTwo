@@ -113,8 +113,10 @@ npm run build:web
 ```
 
 Deploy the **`dist/`** directory to a trusted HTTPS host you control. The build
-writes `dist/_headers` for hosts that support it (Netlify, Cloudflare Pages).
-For other hosts, copy the same headers into the host configuration.
+writes `dist/_headers` and `dist/_redirects` for hosts that support them
+(Netlify, Cloudflare Pages). For other hosts, copy the same rules into the host
+configuration. Full fixed-URL, Supabase redirect, and store instructions are in
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 Required response headers (already generated into `dist/_headers`):
 
@@ -135,15 +137,18 @@ Hosting rules:
 - [ ] If Supabase uses a custom domain, add it to `connect-src` in
       `src/constants/webSecurity.json` and rebuild
 - [ ] `dist/index.html` contains the CSP meta tag (defense in depth)
+- [ ] `dist/_redirects` serves `/*  /index.html  200` so deep links work
+- [ ] A fresh request to `/settings` returns the app, not a 404
 - [ ] Browser console shows no CSP violations on first load
 - [ ] PWA installs, reloads offline, and serves the app shell
 - [ ] `localStorage` is treated as readable by same-origin JavaScript; do not
       claim web storage is encrypted
 
-Verify headers after deployment:
+Verify headers and deep links after deployment:
 
 ```bash
 curl -sI https://<your-domain>/ | grep -iE 'content-security-policy|strict-transport|x-content-type|referrer|permissions'
+curl -s -o /dev/null -w '%{http_code}\n' https://<your-domain>/settings   # expect 200
 ```
 
 ---
