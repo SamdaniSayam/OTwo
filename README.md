@@ -135,6 +135,8 @@ Serve `dist/` over HTTPS on a domain you control. The build requires `script-src
 
 For a fixed public URL, mobile-store builds, and the post-deploy Supabase redirect settings, follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+**Live web prototype:** https://samdanisayam.github.io/OTwo/ (GitHub Pages; see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §1.5).
+
 ---
 
 ## 5. Optional Supabase Setup

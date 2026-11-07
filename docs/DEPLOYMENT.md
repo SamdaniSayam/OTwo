@@ -66,6 +66,12 @@ npx netlify-cli deploy --prod --dir=dist
 Set the same build command, output directory, Node version, and environment
 variables in the Netlify dashboard.
 
+### Alternative: GitHub Pages (live prototype)
+
+Used for the public prototype at `https://samdanisayam.github.io/OTwo/`. Free,
+fixed URL, no extra account. Loses the header layer (CSP via meta tag only) and
+returns HTTP 404 status on deep links (body is still the app). See §1.5 above.
+
 ### Alternative: Vercel
 
 Vercel ignores `_headers` and `_redirects`. Add a root `vercel.json`:
@@ -83,10 +89,26 @@ Then copy the header values from the generated `dist/_headers` into
 the meta CSP still applies, but HSTS, `frame-ancestors`, and the permissions
 policy do not.
 
-### Do not use GitHub Pages
+### GitHub Pages (used for the live prototype)
 
-GitHub Pages does not serve `_headers`, and its SPA fallback needs a manual
-`404.html` copy of `index.html`. It is workable but loses the header layer.
+GitHub Pages is the option actually deployed for the public prototype
+(`https://samdanisayam.github.io/OTwo/`), because it is free, fixed-URL, and
+needs no account beyond the existing GitHub login. Its limitations, and how
+this repo works around them:
+
+- No `_headers` support: the CSP is enforced via the meta tag injected into
+  `dist/index.html` (defense in depth). HSTS, `frame-ancestors`, and the
+  permissions policy are not applied. Deep links return HTTP 404 status with
+  the app body (the `404.html` copy of `index.html`), which the client-side
+  router handles.
+- SPA fallback: `npm run build:web` plus the CI step `cp dist/index.html
+  dist/404.html`.
+- Jekyll is disabled with `public/.nojekyll` so the `_expo/` assets (which
+  start with an underscore) are served.
+- Web storage is still `localStorage` (not encrypted); disclose this in any
+  submission.
+- For a production release, prefer Cloudflare Pages or Netlify (§1.1–1.2) so
+  the full header layer and a 200-status SPA fallback are applied.
 
 ### Why `_redirects` matters
 
