@@ -68,6 +68,9 @@
       ],
       "expo-sharing",
       "./plugins/withIosBackupExclusion"
-    ]
+    ],
+    "experiments": {
+      "baseUrl": "/OTwo"
+    }
   }
 }

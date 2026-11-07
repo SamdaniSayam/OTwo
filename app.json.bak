@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "OTwo",
+    "slug": "OTwo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "otwo",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.otwo.app",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.otwo.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F9F7",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "softwareKeyboardLayoutMode": "pan",
+      "predictiveBackGestureEnabled": true,
+      "allowBackup": false,
+      "permissions": [
+        "INTERNET"
+      ]
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "OTwo Asthma Companion",
+      "shortName": "OTwo",
+      "lang": "en",
+      "scope": "/",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "portrait",
+      "themeColor": "#2F5D50",
+      "backgroundColor": "#F7F9F7",
+      "barStyle": "default",
+      "description": "A local-first asthma routine and habit companion. Not a medical device and not medical advice."
+    },
+    "plugins": [
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
+      ],
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#2F5D50",
+          "defaultChannel": "otwo-medication-reminders",
+          "enableRemoteNotifications": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "OTwo uses your location only to show local air quality. Your location is not stored or uploaded."
+        }
+      ],
+      "expo-sharing",
+      "./plugins/withIosBackupExclusion"
+    ]
+  }
+}
